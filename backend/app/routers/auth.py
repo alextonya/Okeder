@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -24,6 +24,45 @@ async def clerk_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     await handle_clerk_webhook(payload, db)
     return {"ok": True}
+
+
+@router.post("/consent", status_code=201)
+async def submit_consent(
+    request: Request,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_member: Member = Depends(get_current_member),
+):
+    """Enregistre le consentement RGPD + met à jour le display_name."""
+    from datetime import datetime, timezone
+    import hashlib
+
+    from app.models.consent_record import ConsentRecord
+
+    if body.get("display_name"):
+        current_member.display_name = body["display_name"]
+
+    source = body.get("source", "pwa_onboarding")
+    ip_raw = request.client.host if request.client else ""
+    ip_hash = hashlib.sha256(ip_raw.encode()).hexdigest()[:16]
+
+    max_level = 0
+    for consent in body.get("consents", []):
+        level = int(consent["level"])
+        record = ConsentRecord(
+            member_id=current_member.id,
+            level=level,
+            source=source,
+            ip_hash=ip_hash,
+            user_agent=request.headers.get("user-agent", "")[:200],
+            granted_at=datetime.now(timezone.utc),
+        )
+        db.add(record)
+        max_level = max(max_level, level)
+
+    current_member.consent_level = max_level
+    await db.commit()
+    return {"ok": True, "consent_level": max_level}
 
 
 @router.get("/me")

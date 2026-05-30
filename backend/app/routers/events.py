@@ -46,3 +46,19 @@ async def get_event_summary(
 ):
     from app.services.event_service import get_full_summary
     return await get_full_summary(event_id, db)
+
+
+@router.post("/{event_id}/ratings", status_code=status.HTTP_201_CREATED)
+async def submit_rating(
+    event_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_member: Member = Depends(get_current_member),
+):
+    """Note post-event (1–5). Déclenche la mise à jour du profil comportemental à M6."""
+    score = int(body.get("score", 0))
+    if not 1 <= score <= 5:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Score must be 1–5")
+    # TODO M6 : stocker en DB + update_behavioral_profile
+    return {"ok": True, "score": score}
