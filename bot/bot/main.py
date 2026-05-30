@@ -1,6 +1,6 @@
 """
 Point d'entrée du bot Telegram Okeder.
-Mode polling en dev, webhook en prod.
+Mode polling en dev (TELEGRAM_USE_POLLING=true), webhook en prod.
 """
 import logging
 
@@ -10,6 +10,7 @@ from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filt
 from bot.config import settings
 from bot.handlers.commitment import handle_commitment_callback
 from bot.handlers.constraint_dm import build_constraint_conversation
+from bot.handlers.error import error_handler
 from bot.handlers.group_invoke import handle_group_mention
 from bot.handlers.rating import handle_rating_callback
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 def build_app() -> Application:
     app = Application.builder().token(settings.telegram_bot_token).build()
 
-    # Conversation handler — DM collecte contraintes
+    # ConversationHandler DM — doit être enregistré avant les handlers génériques
     app.add_handler(build_constraint_conversation())
 
     # Mention @Okeder dans un groupe
@@ -38,6 +39,9 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(handle_commitment_callback, pattern=r"^commit:"))
     app.add_handler(CallbackQueryHandler(handle_rating_callback, pattern=r"^rate:"))
 
+    # Handler d'erreur global
+    app.add_error_handler(error_handler)
+
     return app
 
 
@@ -45,15 +49,15 @@ def main() -> None:
     app = build_app()
 
     if settings.telegram_use_polling:
-        logger.info("Starting bot in polling mode (dev)")
+        logger.info("Starting Okeder bot in polling mode (dev)")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
     else:
-        logger.info(f"Starting bot in webhook mode: {settings.bot_webhook_url}")
+        logger.info(f"Starting Okeder bot in webhook mode: {settings.bot_webhook_url}")
         app.run_webhook(
             listen="0.0.0.0",
             port=8443,
-            url_path=f"/webhook/{settings.telegram_bot_token}",
-            webhook_url=settings.bot_webhook_url,
+            url_path=f"/bot/{settings.telegram_bot_token}",
+            webhook_url=f"{settings.bot_webhook_url}/bot/{settings.telegram_bot_token}",
             secret_token=settings.bot_webhook_secret,
         )
 

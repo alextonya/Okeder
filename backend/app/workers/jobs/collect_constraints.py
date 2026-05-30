@@ -56,12 +56,19 @@ async def send_constraint_dm(ctx: dict, event_id: str, member_id: str) -> None:
         if not event:
             return
 
+        # Deep link Telegram : /start start_preferences_{event_id}
+        # Le bot username est extrait du token (format: {id}:{token})
+        # En production, configurer BOT_USERNAME dans les settings
+        from app.config import settings
+        bot_username = getattr(settings, "telegram_bot_username", "OkederBot")
+        deep_link = f"https://t.me/{bot_username}?start=start_preferences_{event_id}"
+
         text = (
             f"👋 Hey! A group outing is being planned.\n\n"
             f"<b>{event.title or 'Group event'}</b>\n\n"
             f"I need 3 quick answers to find the best option for everyone. "
             f"Your answers are private — no one else will see them.\n\n"
-            f"Ready? /start_preferences_{event_id}"
+            f'<a href="{deep_link}">Tap here to answer →</a>'
         )
         await send_telegram_message(member.telegram_user_id, text)
 

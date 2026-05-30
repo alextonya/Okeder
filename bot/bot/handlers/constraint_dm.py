@@ -4,8 +4,7 @@ ConversationHandler FSM : collecte des contraintes par DM privé.
 """
 import re
 
-import httpx
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -15,7 +14,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.config import settings
+from bot.api_client import backend_client
 from bot.fsm.states import BotState
 from bot.keyboards.consent_kb import consent_keyboard
 from bot.templates.messages import (
@@ -29,20 +28,37 @@ from bot.templates.messages import (
 
 
 async def start_constraint_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """/start_preferences_{event_id} — déclenche le DM de collecte."""
+    """/start — deep link: /start start_preferences_{event_id}"""
     if not update.message:
         return ConversationHandler.END
 
-    text = update.message.text or ""
-    match = re.search(r"start_preferences_([a-f0-9-]{36})", text)
+    # Telegram passe le paramètre deep link dans context.args[0]
+    args = context.args or []
+    param = args[0] if args else (update.message.text or "")
+    match = re.search(r"start_preferences_([a-f0-9-]{36})", param)
     if not match:
+        # /start générique — juste accueillir
+        await update.message.reply_text(
+            "👋 Hi! I'm Okeder — I help groups plan outings.\n\n"
+            "Ask someone to add me to your group chat and type @Okeder to get started!"
+        )
         return ConversationHandler.END
 
     event_id = match.group(1)
     context.user_data["event_id"] = event_id
 
+    # Enregistrer ce membre
+    user = update.effective_user
+    if user:
+        async with backend_client() as api:
+            await api.post(
+                "/internal/telegram/register-member",
+                json={"telegram_user_id": user.id, "display_name": user.full_name},
+            )
+
     await update.message.reply_text(
-        "👋 A group outing is being planned!\n\nI'll ask you 3 quick questions privately. Ready?",
+        "👋 A group outing is being planned!\n\n"
+        "I'll ask you 3 quick questions privately. Your answers won't be shared with others.",
         reply_markup=consent_keyboard(event_id),
         parse_mode="HTML",
     )
@@ -54,7 +70,6 @@ async def consent_accept(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.answer()
     event_id = query.data.split(":")[2]
     context.user_data["event_id"] = event_id
-
     await query.edit_message_text(BUDGET_QUESTION, parse_mode="HTML")
     return BotState.DM_BUDGET
 
@@ -64,13 +79,10 @@ async def consent_decline(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     event_id = query.data.split(":")[2]
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{settings.backend_api_url}/internal/telegram/preference-declined",
-            json={
-                "event_id": event_id,
-                "telegram_user_id": query.from_user.id,
-            },
+    async with backend_client() as api:
+        await api.post(
+            "/internal/telegram/preference-declined",
+            json={"event_id": event_id, "telegram_user_id": query.from_user.id},
         )
 
     await query.edit_message_text(PREFERENCES_DECLINED, parse_mode="HTML")
@@ -97,8 +109,6 @@ async def receive_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE
         availability=context.user_data.get("availability_raw", "—"),
         preferences=context.user_data.get("preferences_raw", "—"),
     )
-
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Submit", callback_data="submit:confirm"),
         InlineKeyboardButton("✏️ Edit", callback_data="submit:edit"),
@@ -114,15 +124,15 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     event_id = context.user_data.get("event_id")
     user = query.from_user
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{settings.backend_api_url}/internal/telegram/submit-preferences",
+    async with backend_client() as api:
+        await api.post(
+            "/internal/telegram/submit-preferences",
             json={
                 "event_id": event_id,
                 "telegram_user_id": user.id,
-                "budget_raw": context.user_data.get("budget_raw"),
-                "availability_raw": context.user_data.get("availability_raw"),
-                "preferences_raw": context.user_data.get("preferences_raw"),
+                "budget_raw": context.user_data.get("budget_raw", ""),
+                "availability_raw": context.user_data.get("availability_raw", ""),
+                "preferences_raw": context.user_data.get("preferences_raw", ""),
             },
         )
 

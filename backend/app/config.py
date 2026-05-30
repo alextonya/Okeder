@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = ""
+    telegram_bot_username: str = "OkederBot"  # à configurer avec le vrai @username
 
     # WhatsApp
     whatsapp_api_url: str = "https://graph.facebook.com/v18.0"

@@ -11,6 +11,7 @@ from app.routers import (
     commitments,
     events,
     groups,
+    internal,
     preferences,
     proposals,
     webhooks,
@@ -53,6 +54,7 @@ app.include_router(preferences.router, prefix="/v1", tags=["preferences"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(wizard.router, prefix="/v1/wizard", tags=["wizard"])
 app.include_router(ws.router, prefix="/ws", tags=["websocket"])
+app.include_router(internal.router, prefix="/v1/internal/telegram", tags=["internal"])
 
 
 @app.get("/health")

@@ -1,11 +1,7 @@
-"""
-Handler : callbacks des boutons commitment (Soft / Confirm / Hard).
-"""
-import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import settings
+from bot.api_client import backend_client
 
 
 async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -18,25 +14,29 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     _, level, proposal_id = parts
-    user = query.from_user
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{settings.backend_api_url}/internal/telegram/commitment",
+    async with backend_client() as api:
+        await api.post(
+            "/internal/telegram/commitment",
             json={
                 "proposal_id": proposal_id,
                 "level": level,
-                "telegram_user_id": user.id,
+                "telegram_user_id": query.from_user.id,
             },
         )
 
     if level == "hard":
-        # Deeplink vers la PWA pour le paiement Stripe
-        pwa_url = f"https://okeder.app/events/commit?proposal={proposal_id}"
+        pwa_url = f"{_pwa_url()}/events/commit?proposal={proposal_id}"
         await query.answer(
-            text=f"To lock in with payment, open: {pwa_url}",
+            text=f"To lock in with payment: {pwa_url}",
             show_alert=True,
         )
     else:
-        level_label = {"soft": "👍 Interested", "confirmed": "✅ I'm In"}.get(level, level)
-        await query.answer(text=f"Noted: {level_label}", show_alert=False)
+        label = {"soft": "👍 Interested — noted!", "confirmed": "✅ You're in!"}.get(level, level)
+        await query.answer(text=label, show_alert=False)
+
+
+def _pwa_url() -> str:
+    from bot.config import settings
+    # settings.backend_api_url est http://backend:8000/v1 → on reconstruit l'URL PWA
+    return "https://okeder.app"

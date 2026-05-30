@@ -1,8 +1,7 @@
-import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import settings
+from bot.api_client import backend_client
 from bot.templates.messages import RATING_THANKS
 
 
@@ -17,9 +16,9 @@ async def handle_rating_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     _, score, event_id = parts
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{settings.backend_api_url}/internal/telegram/rating",
+    async with backend_client() as api:
+        await api.post(
+            "/internal/telegram/rating",
             json={
                 "event_id": event_id,
                 "score": int(score),

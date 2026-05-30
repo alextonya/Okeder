@@ -1,28 +1,25 @@
 """
 Handler : mention @Okeder dans un groupe Telegram.
-Crée l'event via l'API backend et démarre la collecte de contraintes.
+Crée l'event via le backend et démarre la collecte de contraintes.
 """
-import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import settings
+from bot.api_client import backend_client
 from bot.templates.messages import GROUP_INVOKED
 
 
 async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Déclenché quand @Okeder est mentionné dans un groupe."""
     if not update.message or not update.effective_chat:
         return
 
     chat = update.effective_chat
     user = update.effective_user
 
-    # Récupérer ou créer l'event via le backend
-    async with httpx.AsyncClient() as client:
-        # Enregistrer le membre initiateur si nécessaire
-        await client.post(
-            f"{settings.backend_api_url}/internal/telegram/register-group",
+    async with backend_client() as api:
+        # 1. Enregistrer le groupe et l'initiateur
+        await api.post(
+            "/internal/telegram/register-group",
             json={
                 "telegram_chat_id": chat.id,
                 "chat_title": chat.title or "Group",
@@ -31,9 +28,20 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
             },
         )
 
-        # Créer l'event
-        resp = await client.post(
-            f"{settings.backend_api_url}/internal/telegram/create-event",
+        # 2. Enregistrer tous les membres connus du chat (best effort)
+        if user:
+            await api.post(
+                "/internal/telegram/register-member",
+                json={
+                    "telegram_user_id": user.id,
+                    "display_name": user.full_name,
+                    "telegram_chat_id": chat.id,
+                },
+            )
+
+        # 3. Créer l'event
+        resp = await api.post(
+            "/internal/telegram/create-event",
             json={
                 "telegram_chat_id": chat.id,
                 "title": _extract_title(update.message.text or ""),
@@ -41,8 +49,16 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
             },
         )
 
-    if resp.status_code == 201:
-        await update.message.reply_text(GROUP_INVOKED, parse_mode="HTML")
+    if resp.status_code in (200, 201):
+        data = resp.json()
+        if data.get("existing"):
+            await update.message.reply_text(
+                "⚡ There's already an active event for this group!\n"
+                "I'm still collecting preferences — stay tuned.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(GROUP_INVOKED, parse_mode="HTML")
     else:
         await update.message.reply_text(
             "Something went wrong. Please try again or visit okeder.app"
@@ -50,6 +66,5 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 def _extract_title(text: str) -> str | None:
-    """Extrait un titre optionnel du message d'invocation."""
     clean = text.replace("@Okeder", "").strip()
     return clean if len(clean) > 3 else None
