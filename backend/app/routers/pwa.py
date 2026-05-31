@@ -275,7 +275,12 @@ async def share_page(event_id: str, request: Request, db: AsyncSession = Depends
         "<span class='icon'>📋</span> Copy link</button>"
 
         f"<a class='btn result' href='{result_url}'>See proposal when ready →</a>"
-        "<p style='font-size:12px;color:#475569;margin-top:12px;text-align:center'>This page refreshes automatically every 15s</p>"
+        "<hr style='border:1px solid rgba(255,255,255,.06);margin:16px 0'>"
+        "<p style='font-size:13px;color:#64748b;margin-bottom:10px'>Share the result link so everyone can see the proposal:</p>"
+        f"<a class='btn' style='background:#0f172a;border:1.5px solid rgba(255,255,255,.1);color:#94a3b8;justify-content:center'"
+        f" href='https://wa.me/?text={__import__(\"urllib.parse\",fromlist=[\"parse\"]).parse.quote(\"The plan is ready! See it here: \" + result_url)}' target='_blank'>"
+        "📱 Share result via WhatsApp</a>"
+        "<p style='font-size:12px;color:#475569;margin-top:12px;text-align:center'>Preferences page refreshes every 15s</p>"
         "</div></body></html>"
     )
     return HTMLResponse(content=html)

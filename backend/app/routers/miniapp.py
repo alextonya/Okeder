@@ -228,8 +228,20 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
   <div class="success" id="success-view">
     <div class="icon">✅</div>
-    <h2>C'est noté !</h2>
-    <p>Tes préférences ont été enregistrées.<br>Tu seras notifié dès que le plan est prêt.</p>
+    <h2>Done!</h2>
+    <p style="margin-bottom:16px">Your preferences have been saved.</p>
+    <div id="result-link-box" style="display:none;
+      background:rgba(99,102,241,0.15);border:1px solid #6366f1;
+      border-radius:12px;padding:14px;margin-bottom:12px;text-align:left">
+      <p style="font-size:13px;color:#a5b4fc;margin-bottom:8px">
+        📌 Bookmark this link to see the proposal when it's ready:
+      </p>
+      <a id="result-link-url" href="#" target="_blank"
+         style="font-size:12px;color:#6366f1;word-break:break-all"></a>
+    </div>
+    <p style="font-size:13px;color:var(--tg-theme-hint-color,#64748b)">
+      You'll be notified when the proposal is ready.
+    </p>
   </div>
 
   <script>
@@ -533,12 +545,23 @@ MINI_APP_HTML = """<!DOCTYPE html>
           document.getElementById('form-view').style.display = 'none';
           const sv = document.getElementById('success-view');
           sv.style.display = 'flex';
-          // Redirection : next_url (PWA) ou fermeture Telegram
+
+          // Afficher le lien /result/ pour que les invités puissent revenir
+          const resultUrl = BACKEND_URL + '/result/' + EVENT_ID;
+          const linkBox = document.getElementById('result-link-box');
+          const linkEl  = document.getElementById('result-link-url');
+          if (linkBox && linkEl) {{
+            linkEl.href = resultUrl;
+            linkEl.textContent = resultUrl;
+            linkBox.style.display = 'block';
+          }}
+
+          // Redirection : next_url (organisateur) ou fermeture Telegram
           const redirectTo = data.next_url || NEXT_URL;
           if (redirectTo) {{
-            setTimeout(() => window.location.href = redirectTo, 1500);
-          }} else {{
-            setTimeout(() => tg.close(), 2500);
+            setTimeout(() => window.location.href = redirectTo, 2000);
+          }} else if (tg.initData) {{
+            setTimeout(() => tg.close(), 3000);
           }}
         }} else {{
           btn.disabled = false;
