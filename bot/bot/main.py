@@ -59,7 +59,7 @@ def main() -> None:
 
     if settings.telegram_use_polling:
         logger.info("Starting Okeder bot in polling mode (dev)")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=-1)
     else:
         logger.info(f"Starting Okeder bot in webhook mode: {settings.bot_webhook_url}")
         app.run_webhook(

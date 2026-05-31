@@ -264,12 +264,16 @@ async def commitment_from_bot(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(_verify_bot_token),
 ):
-    """Enregistre un commitment depuis le clavier inline Telegram."""
-    import uuid
+    """Enregistre un commitment depuis le clavier inline Telegram.
+    proposal_prefix et event_prefix : 12 premiers chars de l'UUID sans tirets.
+    """
+    from sqlalchemy import text as sa_text
     from app.models.commitment import Commitment, CommitmentLevel
+    from app.models.proposal import Proposal
 
     tg_id: int = body["telegram_user_id"]
-    proposal_id: str = body["proposal_id"]
+    proposal_prefix: str = body["proposal_id"]   # peut être un prefix court ou un UUID complet
+    event_prefix: str = body.get("event_id", "")
     level: str = body.get("level", CommitmentLevel.SOFT)
 
     member_result = await db.execute(select(Member).where(Member.telegram_user_id == tg_id))
@@ -277,10 +281,19 @@ async def commitment_from_bot(
     if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    proposal_uuid = uuid.UUID(proposal_id)
+    # Retrouver la proposal par prefix (LIKE sur UUID sans tirets)
+    prop_result = await db.execute(
+        select(Proposal).where(
+            sa_text(f"REPLACE(proposals.id::text, '-', '') LIKE '{proposal_prefix}%'")
+        ).limit(1)
+    )
+    proposal = prop_result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
     c_result = await db.execute(
         select(Commitment).where(
-            Commitment.proposal_id == proposal_uuid,
+            Commitment.proposal_id == proposal.id,
             Commitment.member_id == member.id,
         )
     )
@@ -288,17 +301,16 @@ async def commitment_from_bot(
     if commitment:
         commitment.level = level
     else:
-        from app.models.commitment import Commitment
-        commitment = Commitment(proposal_id=proposal_uuid, member_id=member.id, level=level)
+        commitment = Commitment(proposal_id=proposal.id, member_id=member.id, level=level)
         db.add(commitment)
 
     await db.commit()
 
-    # Broadcast WebSocket
     from app.routers.ws import broadcast_commitment_update
-    await broadcast_commitment_update(proposal_id)
+    await broadcast_commitment_update(str(proposal.id))
 
-    return {"ok": True}
+    # Retourner l'event_id pour le DM récapitulatif
+    return {"ok": True, "event_id": str(proposal.event_id), "proposal_id": str(proposal.id)}
 
 
 # ─── Résumé membre (pour DM après commitment) ────────────────────────────────

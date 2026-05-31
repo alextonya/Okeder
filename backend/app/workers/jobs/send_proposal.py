@@ -63,11 +63,14 @@ def _format_proposal_card(proposal) -> str:
 
 
 def _build_commitment_keyboard(proposal_id: str, event_id: str) -> dict:
+    # Telegram limite callback_data à 64 chars — on utilise les 12 premiers chars des IDs
+    p = proposal_id.replace("-", "")[:12]
+    e = event_id.replace("-", "")[:12]
     return {
         "inline_keyboard": [[
-            {"text": "👍 Interested", "callback_data": f"commit:soft:{proposal_id}:{event_id}"},
-            {"text": "✅ I'm In",     "callback_data": f"commit:confirmed:{proposal_id}:{event_id}"},
-            {"text": "🔒 Lock In",    "callback_data": f"commit:hard:{proposal_id}:{event_id}"},
+            {"text": "👍 Interested", "callback_data": f"commit:soft:{p}:{e}"},
+            {"text": "✅ I'm In",     "callback_data": f"commit:confirmed:{p}:{e}"},
+            {"text": "🔒 Lock In",    "callback_data": f"commit:hard:{p}:{e}"},
         ]]
     }
 

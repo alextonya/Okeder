@@ -35,24 +35,33 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
     event_id = parts[3] if len(parts) > 3 else None
     user = query.from_user
 
-    # 1. Enregistrer le commitment
+    # 1. Toast immédiat (avant l'appel API pour éviter le timeout Telegram)
+    label = LEVEL_LABELS.get(level, level)
+    await query.answer(text=f"{label} — noted!", show_alert=False)
+
+    # 2. Enregistrer le commitment — le backend retourne l'event_id complet
     async with backend_client() as api:
-        await api.post(
+        resp = await api.post(
             "/internal/telegram/commitment",
             json={
                 "proposal_id": proposal_id,
                 "level": level,
+                "event_id": event_id or "",
                 "telegram_user_id": user.id,
             },
         )
 
-    # 2. Toast dans le groupe
-    label = LEVEL_LABELS.get(level, level)
-    await query.answer(text=f"{label} — noted!", show_alert=False)
+    resolved_event_id = event_id
+    if resp and resp.status_code == 200:
+        data = resp.json()
+        resolved_event_id = data.get("event_id") or event_id
+        resolved_proposal_id = data.get("proposal_id") or proposal_id
+    else:
+        resolved_proposal_id = proposal_id
 
     # 3. DM récapitulatif (uniquement pour soft et confirmed)
-    if level in ("soft", "confirmed") and event_id:
-        await _send_summary_dm(context, user.id, event_id, proposal_id, level)
+    if level in ("soft", "confirmed") and resolved_event_id:
+        await _send_summary_dm(context, user.id, resolved_event_id, resolved_proposal_id, level)
     elif level == "hard":
         # Lock In → deeplink vers PWA pour paiement
         public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
