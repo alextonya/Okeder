@@ -7,6 +7,7 @@ from app.models.group import Group, GroupMembership
 from app.models.member import Member
 from app.models.preference import Preference
 from app.models.proposal import Proposal
+from app.models.push_subscription import PushSubscription
 
 __all__ = [
     "BehavioralProfile",

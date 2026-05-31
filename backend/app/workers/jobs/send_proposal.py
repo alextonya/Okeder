@@ -40,6 +40,9 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
         keyboard = _build_commitment_keyboard(proposal_id, str(proposal.event_id))
         await send_telegram_message(group.telegram_chat_id, text, reply_markup=keyboard)
 
+        # Email + Push aux participants non-Telegram
+        await _notify_non_telegram(proposal, event, db)
+
 
 def _format_proposal_card(proposal) -> str:  # noqa: C901
     import urllib.parse as _ul
@@ -183,6 +186,70 @@ def _build_commitment_keyboard(proposal_id: str, event_id: str) -> dict:
             {"text": "🔒 Lock In",    "callback_data": "commit:hard:" + p + ":" + e},
         ]]
     }
+
+
+async def _notify_non_telegram(proposal, event, db) -> None:
+    """Envoie email + push aux participants qui ont fourni email ou subscription push."""
+    import os
+    from sqlalchemy.future import select
+    from app.models.group import GroupMembership
+    from app.models.member import Member
+    from app.models.push_subscription import PushSubscription
+    from app.services.email_service import send_proposal_email
+    from app.services.push_service import send_push_to_all
+
+    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+    result_url = f"{public_url}/result/{event.id}"
+
+    # Résumé texte de la proposal
+    lj = proposal.legitimacy_json or {}
+    vibe = lj.get("vibe_proposed") or lj.get("vibe") or ""
+    activity = lj.get("activity") or ""
+    date_hint = lj.get("datetime_hint", "")
+    summary_parts = []
+    if vibe:
+        summary_parts.append(vibe.capitalize() + (" + " + activity.capitalize() if activity != vibe else ""))
+    if date_hint and date_hint != "TBD":
+        summary_parts.append(date_hint)
+    if proposal.venue_name:
+        summary_parts.append(proposal.venue_name)
+        if proposal.venue_address:
+            summary_parts[-1] += " — " + proposal.venue_address
+    summary = "\n".join(summary_parts) if summary_parts else "Group Outing"
+
+    # Membres du groupe
+    members_result = await db.execute(
+        select(Member).join(GroupMembership, Member.id == GroupMembership.member_id)
+        .where(GroupMembership.group_id == event.group_id)
+    )
+    members = members_result.scalars().all()
+
+    # Email aux membres ayant fourni un email ET sans Telegram
+    for member in members:
+        if member.email and not member.telegram_user_id:
+            await send_proposal_email(
+                to_email=member.email,
+                participant_name=member.display_name or "Friend",
+                event_title=proposal.title or "Group Outing",
+                proposal_summary=summary,
+                result_url=result_url,
+            )
+
+    # Push à tous les abonnements liés aux membres du groupe
+    member_ids = [m.id for m in members]
+    if member_ids:
+        subs_result = await db.execute(
+            select(PushSubscription).where(PushSubscription.member_id.in_(member_ids))
+        )
+        subs = subs_result.scalars().all()
+        if subs:
+            push_subs = [{"endpoint": s.endpoint, "keys": s.keys} for s in subs]
+            await send_push_to_all(
+                subscriptions=push_subs,
+                title="🎯 " + (proposal.title or "Group Outing"),
+                body=summary,
+                url=result_url,
+            )
 
 
 async def enqueue_send_proposal(proposal_id: str) -> None:

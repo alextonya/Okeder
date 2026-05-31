@@ -210,10 +210,15 @@ MINI_APP_HTML = """<!DOCTYPE html>
       <p class="hint">Sépare par des virgules. Ces contraintes seront strictement respectées.</p>
     </div>
 
-    <!-- NOM -->
+    <!-- NOM + EMAIL -->
     <div class="section">
       <span class="section-label">Ton prénom</span>
       <input type="text" id="display-name" placeholder="Prénom ou surnom">
+    </div>
+    <div class="section">
+      <span class="section-label">Email <span style="font-weight:400;text-transform:none">(pour recevoir la proposal)</span></span>
+      <input type="email" id="notify-email" placeholder="ton@email.com" autocomplete="email">
+      <p class="hint" style="margin-top:6px">Uniquement pour t'envoyer la proposition.</p>
     </div>
 
     <button class="submit-btn" id="submit-btn" onclick="submitPrefs()">
@@ -488,6 +493,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
       const body = {{
         init_data:        tg.initData || "",
         display_name:     name,
+        notify_email:     document.getElementById('notify-email').value.trim() || null,
         event_id:         EVENT_ID,
         // Ambiance + activité
         vibe:             [...selected.vibe],
@@ -577,6 +583,7 @@ async def submit_mini_app_preferences(
     init_data    = body.get("init_data", "")
     event_id_str = body.get("event_id", "")
     display_name = body.get("display_name", "").strip() or "Anonymous"
+    notify_email = body.get("notify_email", "").strip() or None
 
     # Identification via Telegram initData ou fallback nom
     user_data = _validate_telegram_init_data(init_data, settings.telegram_bot_token) if init_data else None
@@ -593,8 +600,10 @@ async def submit_mini_app_preferences(
         else:
             if display_name and display_name != "Anonymous":
                 member.display_name = display_name
+            if notify_email:
+                member.email = notify_email
     else:
-        member = Member(display_name=display_name)
+        member = Member(display_name=display_name, email=notify_email)
         db.add(member)
         await db.flush()
 

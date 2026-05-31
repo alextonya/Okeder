@@ -15,6 +15,8 @@ from app.routers import (
     miniapp,
     preferences,
     proposals,
+    pwa,
+    sw_route,
     webhooks,
     wizard,
     ws,
@@ -57,6 +59,8 @@ app.include_router(wizard.router, prefix="/v1/wizard", tags=["wizard"])
 app.include_router(ws.router, prefix="/ws", tags=["websocket"])
 app.include_router(internal.router, prefix="/v1/internal/telegram", tags=["internal"])
 app.include_router(miniapp.router, tags=["miniapp"])
+app.include_router(pwa.router, tags=["pwa"])
+app.include_router(sw_route.router, tags=["sw"])
 
 
 @app.get("/health")

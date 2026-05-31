@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     # Foursquare Places API (gratuit, 1000 req/jour)
     foursquare_api_key: str = ""
 
+    # Email notifications (B)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    email_from: str = "noreply@okeder.app"
+
+    # Push notifications VAPID (C)
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_claims_email: str = "mailto:contact@okeder.app"
+
     @property
     def is_dev(self) -> bool:
         return self.app_env == "development"
