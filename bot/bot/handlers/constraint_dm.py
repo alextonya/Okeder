@@ -1,6 +1,7 @@
 """
 ConversationHandler FSM : collecte des contraintes par DM privé.
 États : DM_CONSENT_CHECK → DM_BUDGET → DM_AVAILABILITY → DM_PREFERENCES → DM_CONFIRM_SUBMIT
+Tous les appels Telegram utilisent telegram_utils (retry x5).
 """
 import os
 import re
@@ -19,6 +20,7 @@ from bot.api_client import backend_client
 from bot.config import settings
 from bot.fsm.states import BotState
 from bot.keyboards.consent_kb import consent_keyboard
+from bot.telegram_utils import answer_callback, edit_message_text, reply_text, send_message
 from bot.templates.messages import (
     AVAILABILITY_QUESTION,
     BUDGET_QUESTION,
@@ -35,7 +37,6 @@ async def _send_webapp_button(
     """Envoie le bouton WebApp en DM — identité Telegram injectée automatiquement."""
     user = update.effective_user
 
-    # Enregistrer le membre (maintenant qu'il interagit avec le bot)
     if user:
         async with backend_client() as api:
             await api.post(
@@ -47,15 +48,10 @@ async def _send_webapp_button(
     mini_app_url = f"{public_url}/mini-app/{event_id}"
 
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            "📝 Open preference form",
-            web_app=WebAppInfo(url=mini_app_url),
-        )
+        InlineKeyboardButton("📝 Open preference form", web_app=WebAppInfo(url=mini_app_url))
     ]])
 
-    # Retry avec context.bot (évite le bug TLS anyio Python 3.14)
-    from bot.telegram_utils import send_message as _send
-    await _send(
+    await send_message(
         chat_id=update.effective_chat.id,
         text="👋 Tap below to submit your preferences — takes 30 seconds!",
         reply_markup=keyboard,
@@ -65,17 +61,14 @@ async def _send_webapp_button(
 
 
 async def start_constraint_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """/start — gère deux deep links :
-    - start_preferences_{event_id} : ancien format (DM direct)
-    - event_{event_id} : nouveau format (deep link depuis groupe → WebApp en DM)
-    """
+    """/start — gère deux deep links."""
     if not update.message:
         return ConversationHandler.END
 
     args = context.args or []
     param = args[0] if args else (update.message.text or "")
 
-    # Nouveau format : event_{event_id} → envoyer bouton WebApp en DM
+    # Nouveau format : event_{event_id}
     event_match = re.search(r"^event_([a-f0-9-]{36})$", param)
     if event_match:
         event_id = event_match.group(1)
@@ -84,17 +77,16 @@ async def start_constraint_flow(update: Update, context: ContextTypes.DEFAULT_TY
     # Ancien format : start_preferences_{event_id}
     match = re.search(r"start_preferences_([a-f0-9-]{36})", param)
     if not match:
-        # /start générique — juste accueillir
-        await update.message.reply_text(
+        await reply_text(
+            update.message,
             "👋 Hi! I'm Okeder — I help groups plan outings.\n\n"
-            "Ask someone to add me to your group chat and type @Okeder to get started!"
+            "Ask someone to add me to your group chat and type @Okeder to get started!",
         )
         return ConversationHandler.END
 
     event_id = match.group(1)
     context.user_data["event_id"] = event_id
 
-    # Enregistrer ce membre
     user = update.effective_user
     if user:
         async with backend_client() as api:
@@ -103,27 +95,27 @@ async def start_constraint_flow(update: Update, context: ContextTypes.DEFAULT_TY
                 json={"telegram_user_id": user.id, "display_name": user.full_name},
             )
 
-    await update.message.reply_text(
+    await reply_text(
+        update.message,
         "👋 A group outing is being planned!\n\n"
         "I'll ask you 3 quick questions privately. Your answers won't be shared with others.",
         reply_markup=consent_keyboard(event_id),
-        parse_mode="HTML",
     )
     return BotState.DM_CONSENT_CHECK
 
 
 async def consent_accept(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await answer_callback(query)
     event_id = query.data.split(":")[2]
     context.user_data["event_id"] = event_id
-    await query.edit_message_text(BUDGET_QUESTION, parse_mode="HTML")
+    await edit_message_text(query, BUDGET_QUESTION)
     return BotState.DM_BUDGET
 
 
 async def consent_decline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await answer_callback(query)
     event_id = query.data.split(":")[2]
 
     async with backend_client() as api:
@@ -132,19 +124,19 @@ async def consent_decline(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             json={"event_id": event_id, "telegram_user_id": query.from_user.id},
         )
 
-    await query.edit_message_text(PREFERENCES_DECLINED, parse_mode="HTML")
+    await edit_message_text(query, PREFERENCES_DECLINED)
     return ConversationHandler.END
 
 
 async def receive_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["budget_raw"] = update.message.text
-    await update.message.reply_text(AVAILABILITY_QUESTION, parse_mode="HTML")
+    await reply_text(update.message, AVAILABILITY_QUESTION)
     return BotState.DM_AVAILABILITY
 
 
 async def receive_availability(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["availability_raw"] = update.message.text
-    await update.message.reply_text(PREFERENCES_QUESTION, parse_mode="HTML")
+    await reply_text(update.message, PREFERENCES_QUESTION)
     return BotState.DM_PREFERENCES
 
 
@@ -160,13 +152,13 @@ async def receive_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE
         InlineKeyboardButton("✅ Submit", callback_data="submit:confirm"),
         InlineKeyboardButton("✏️ Edit", callback_data="submit:edit"),
     ]])
-    await update.message.reply_text(summary, reply_markup=keyboard, parse_mode="HTML")
+    await reply_text(update.message, summary, reply_markup=keyboard)
     return BotState.DM_CONFIRM_SUBMIT
 
 
 async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await answer_callback(query)
 
     event_id = context.user_data.get("event_id")
     user = query.from_user
@@ -183,15 +175,15 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             },
         )
 
-    await query.edit_message_text(PREFERENCES_SUBMITTED, parse_mode="HTML")
+    await edit_message_text(query, PREFERENCES_SUBMITTED)
     context.user_data.clear()
     return ConversationHandler.END
 
 
 async def edit_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(BUDGET_QUESTION, parse_mode="HTML")
+    await answer_callback(query)
+    await edit_message_text(query, BUDGET_QUESTION)
     return BotState.DM_BUDGET
 
 

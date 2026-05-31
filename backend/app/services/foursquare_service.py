@@ -92,7 +92,19 @@ async def search_venues(
             with urllib.request.urlopen(req, timeout=8) as r:
                 return _json.loads(r.read().decode())
 
-        data = await asyncio.to_thread(_fetch)
+        # Retry x3 pour WinError 10054
+        data = None
+        last_err = None
+        for _attempt in range(3):
+            try:
+                data = await asyncio.to_thread(_fetch)
+                break
+            except Exception as e:
+                last_err = e
+                if _attempt < 2:
+                    await asyncio.sleep(0.5)
+        if data is None:
+            raise last_err
 
         results = []
         for place in data.get("results", []):
