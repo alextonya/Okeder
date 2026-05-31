@@ -48,8 +48,10 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         spec = run_engine(preferences)
 
         # ─── 3. Rechercher un venue via Eventbrite ────────────────────────────
+        # Priorité : event.location (saisi manuellement) > spec.location_hint (issu des prefs)
         location = event.location or spec.location_hint or "London"
-        radius_km = max(2, spec.travel_time_max // 6)  # ~10 km/h à pied → conservateur
+        # Rayon : travel_time_max / 6 → ~5 km pour 30 min (vitesse piéton ~3 km/h + transports)
+        radius_km = max(2, spec.travel_time_max // 6)
 
         venue_data = await _search_venue(
             category=spec.category or spec.vibe,

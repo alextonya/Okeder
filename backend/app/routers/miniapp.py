@@ -124,18 +124,25 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     <div class="divider"></div>
 
-    <!-- POINT DE DÉPART -->
+    <!-- ZONE GÉOGRAPHIQUE -->
     <div class="section">
-      <span class="section-label">Tu pars d'où ?<span class="required">*</span></span>
+      <span class="section-label">Votre zone<span class="required">*</span></span>
+      <input type="text" id="departure-text"
+        placeholder="Quartier, station de métro, ville… ex: Bastille, Clapham, Nation">
+      <p class="hint" style="margin-top:6px">
+        Aide à trouver le lieu idéal pour tout le groupe.
+      </p>
+    </div>
+
+    <!-- CONTEXTE DE DÉPART -->
+    <div class="section">
+      <span class="section-label">Tu pars d'où ? <span style="font-weight:400;text-transform:none">(optionnel)</span></span>
       <div class="chips" id="departure-chips">
         <span class="chip single" data-group="departure" data-val="home">🏠 De chez moi</span>
         <span class="chip single" data-group="departure" data-val="work">🏢 Du bureau</span>
         <span class="chip single" data-group="departure" data-val="center">🎯 Centre-ville</span>
-        <span class="chip single" data-group="departure" data-val="other">📍 Autre</span>
       </div>
-      <div id="departure-extra">
-        <input type="text" id="departure-text" placeholder="Station de métro, quartier, adresse…">
-      </div>
+      <div id="departure-extra" style="display:none"></div>
     </div>
 
     <!-- TEMPS DE TRAJET -->
@@ -252,6 +259,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
           }}
         }}
       }}
+      // Zone géographique (toujours visible maintenant)
       if (data.departure_text) {{
         document.getElementById('departure-text').value = data.departure_text;
       }}
@@ -320,8 +328,10 @@ MINI_APP_HTML = """<!DOCTYPE html>
         alert('Choisis au moins une ambiance (Vibe)');
         return;
       }}
-      if (!singleSelected.departure) {{
-        alert('Indique ton point de départ');
+      const depText = document.getElementById('departure-text').value.trim();
+      if (!depText) {{
+        alert('Indique ta zone (quartier, station, ville…)');
+        document.getElementById('departure-text').focus();
         return;
       }}
       if (!singleSelected.travel) {{
@@ -337,7 +347,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
       const budgetMax = document.getElementById('budget-max').value;
       const hardNos   = document.getElementById('hard-nos').value;
       const name      = document.getElementById('display-name').value.trim();
-      const depText   = document.getElementById('departure-text').value.trim();
+      // depText déjà lu dans la validation ci-dessus
 
       const body = {{
         init_data:        tg.initData || "",
