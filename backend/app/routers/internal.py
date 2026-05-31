@@ -131,17 +131,8 @@ async def create_event(
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
-    # Éviter de créer un event en doublon si un est déjà en cours
-    active_result = await db.execute(
-        select(Event).where(
-            Event.group_id == group.id,
-            Event.status.in_([EventStatus.COLLECTING, EventStatus.DECIDING, EventStatus.PROPOSED]),
-        )
-    )
-    active = active_result.scalar_one_or_none()
-    if active:
-        return {"event_id": str(active.id), "status": active.status, "existing": True}
-
+    # Chaque @OkederBot crée un nouvel event distinct (préremplissage par event_id)
+    # Un event précédent reste en DB mais n'est plus actif
     deadline = datetime.now(timezone.utc) + timedelta(hours=48)
     event = Event(
         group_id=group.id,
@@ -159,7 +150,7 @@ async def create_event(
     from app.workers.jobs.collect_constraints import enqueue_collect_constraints
     await enqueue_collect_constraints(str(event.id))
 
-    return {"event_id": str(event.id), "status": event.status, "existing": False}
+    return {"event_id": str(event.id), "status": event.status}
 
 
 # ─── Préférences ─────────────────────────────────────────────────────────────
@@ -308,6 +299,80 @@ async def commitment_from_bot(
     await broadcast_commitment_update(proposal_id)
 
     return {"ok": True}
+
+
+# ─── Résumé membre (pour DM après commitment) ────────────────────────────────
+
+@router.get("/member-summary")
+async def member_summary(
+    telegram_user_id: int,
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_verify_bot_token),
+):
+    """Retourne les préférences + commitment d'un membre pour un event."""
+    import uuid as _uuid
+
+    result = await db.execute(select(Member).where(Member.telegram_user_id == telegram_user_id))
+    member = result.scalar_one_or_none()
+    if not member:
+        return {"found": False}
+
+    from app.models.commitment import Commitment
+    from app.models.preference import Preference
+    from app.models.proposal import Proposal
+
+    try:
+        event_uuid = _uuid.UUID(event_id)
+    except ValueError:
+        return {"found": False}
+
+    # Préférences
+    pref_result = await db.execute(
+        select(Preference).where(
+            Preference.event_id == event_uuid,
+            Preference.member_id == member.id,
+        )
+    )
+    pref = pref_result.scalar_one_or_none()
+
+    # Proposal courante
+    prop_result = await db.execute(
+        select(Proposal)
+        .where(Proposal.event_id == event_uuid, Proposal.published == True)  # noqa: E712
+        .order_by(Proposal.version.desc()).limit(1)
+    )
+    proposal = prop_result.scalar_one_or_none()
+
+    # Commitment
+    commitment_level = None
+    if proposal:
+        c_result = await db.execute(
+            select(Commitment).where(
+                Commitment.proposal_id == proposal.id,
+                Commitment.member_id == member.id,
+            )
+        )
+        c = c_result.scalar_one_or_none()
+        commitment_level = c.level if c else None
+
+    raw = pref.raw_answers or {} if pref else {}
+
+    return {
+        "found": True,
+        "member_name": member.display_name,
+        "commitment_level": commitment_level,
+        "proposal_id": str(proposal.id) if proposal else None,
+        "preferences": {
+            "vibe":            raw.get("vibe", []),
+            "activity":        raw.get("activity", []),
+            "departure_text":  raw.get("departure_text"),
+            "travel_time_max": raw.get("travel_time_max"),
+            "budget_min":      pref.budget_min if pref else None,
+            "budget_max":      pref.budget_max if pref else None,
+            "hard_constraints": pref.hard_constraints or [] if pref else [],
+        } if pref else None,
+    }
 
 
 # ─── Rating depuis bot ────────────────────────────────────────────────────────

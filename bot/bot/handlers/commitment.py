@@ -1,42 +1,160 @@
-from telegram import Update
+"""
+Handler : callbacks des boutons commitment (Interested / I'm In / Lock In).
+Après chaque commitment → DM récapitulatif avec préférences + options.
+"""
+import os
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
 from bot.api_client import backend_client
+from bot.config import settings
+
+LEVEL_LABELS = {
+    "soft":      "👍 Interested",
+    "confirmed": "✅ I'm In",
+    "hard":      "🔒 Locked In",
+}
+
+OPPOSITE_LEVELS = {
+    "soft":      [("confirmed", "✅ Change to I'm In")],
+    "confirmed": [("soft", "👍 Change to Interested")],
+}
 
 
 async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """commit:{level}:{proposal_id}"""
+    """commit:{level}:{proposal_id}:{event_id}"""
     query = update.callback_query
     await query.answer()
 
     parts = query.data.split(":")
-    if len(parts) != 3:
+    if len(parts) < 3:
         return
 
-    _, level, proposal_id = parts
+    _, level, proposal_id = parts[0], parts[1], parts[2]
+    event_id = parts[3] if len(parts) > 3 else None
+    user = query.from_user
 
+    # 1. Enregistrer le commitment
     async with backend_client() as api:
         await api.post(
             "/internal/telegram/commitment",
             json={
                 "proposal_id": proposal_id,
                 "level": level,
-                "telegram_user_id": query.from_user.id,
+                "telegram_user_id": user.id,
             },
         )
 
-    if level == "hard":
-        pwa_url = f"{_pwa_url()}/events/commit?proposal={proposal_id}"
-        await query.answer(
-            text=f"To lock in with payment: {pwa_url}",
-            show_alert=True,
+    # 2. Toast dans le groupe
+    label = LEVEL_LABELS.get(level, level)
+    await query.answer(text=f"{label} — noted!", show_alert=False)
+
+    # 3. DM récapitulatif (uniquement pour soft et confirmed)
+    if level in ("soft", "confirmed") and event_id:
+        await _send_summary_dm(context, user.id, event_id, proposal_id, level)
+    elif level == "hard":
+        # Lock In → deeplink vers PWA pour paiement
+        public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+        mini_app_url = f"{public_url}/mini-app/{event_id}"
+        try:
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "💳 Complete payment",
+                    web_app=WebAppInfo(url=mini_app_url),
+                )
+            ]])
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="🔒 <b>You're locked in!</b>\n\nComplete your payment to confirm your spot.",
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            pass  # DM échoue si l'utilisateur n'a jamais démarré le bot
+
+
+async def _send_summary_dm(
+    context,
+    telegram_user_id: int,
+    event_id: str,
+    proposal_id: str,
+    commitment_level: str,
+) -> None:
+    """Envoie un DM récapitulatif avec les préférences et options de modification."""
+    async with backend_client() as api:
+        resp = await api.get(
+            "/internal/telegram/member-summary",
+            params={"telegram_user_id": telegram_user_id, "event_id": event_id},
         )
-    else:
-        label = {"soft": "👍 Interested — noted!", "confirmed": "✅ You're in!"}.get(level, level)
-        await query.answer(text=label, show_alert=False)
 
+    if not resp or resp.status_code != 200:
+        return
 
-def _pwa_url() -> str:
-    from bot.config import settings
-    # settings.backend_api_url est http://backend:8000/v1 → on reconstruit l'URL PWA
-    return "https://okeder.app"
+    data = resp.json()
+    if not data.get("found"):
+        return
+
+    prefs = data.get("preferences") or {}
+    level_label = LEVEL_LABELS.get(commitment_level, commitment_level)
+
+    # ─── Construction du message récapitulatif ────────────────────────────────
+    lines = [
+        f"{level_label} — here's your summary:",
+        "",
+    ]
+
+    if prefs.get("vibe"):
+        lines.append(f"🎭 Vibe: {', '.join(prefs['vibe'])}")
+    if prefs.get("activity"):
+        lines.append(f"🍽️ Activity: {', '.join(prefs['activity'])}")
+    if prefs.get("departure_text"):
+        lines.append(f"📍 Zone: {prefs['departure_text']}")
+    if prefs.get("travel_time_max") and prefs["travel_time_max"] != 999:
+        lines.append(f"⏱️ Travel: {prefs['travel_time_max']} min max")
+    if prefs.get("budget_min") or prefs.get("budget_max"):
+        b_min = f"€{prefs['budget_min']//100}" if prefs.get("budget_min") else "?"
+        b_max = f"€{prefs['budget_max']//100}" if prefs.get("budget_max") else "?"
+        lines.append(f"💶 Budget: {b_min} – {b_max}")
+    if prefs.get("hard_constraints"):
+        lines.append(f"🚫 Hard nos: {', '.join(prefs['hard_constraints'])}")
+
+    if not prefs:
+        lines.append("No preferences submitted yet.")
+
+    lines.extend(["", "Want to update anything?"])
+
+    text = "\n".join(lines)
+
+    # ─── Boutons ──────────────────────────────────────────────────────────────
+    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+    mini_app_url = f"{public_url}/mini-app/{event_id}"
+
+    buttons = []
+
+    # Modifier les préférences → ouvre le Mini App (prérempli)
+    buttons.append(InlineKeyboardButton(
+        "✏️ Modify my preferences",
+        web_app=WebAppInfo(url=mini_app_url),
+    ))
+
+    keyboard_rows = [[buttons[0]]]
+
+    # Changer le niveau de commitment
+    for alt_level, alt_label in OPPOSITE_LEVELS.get(commitment_level, []):
+        keyboard_rows.append([
+            InlineKeyboardButton(
+                alt_label,
+                callback_data=f"commit:{alt_level}:{proposal_id}:{event_id}",
+            )
+        ])
+
+    try:
+        await context.bot.send_message(
+            chat_id=telegram_user_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard_rows),
+        )
+    except Exception:
+        pass  # L'utilisateur n'a peut-être pas démarré le bot en DM

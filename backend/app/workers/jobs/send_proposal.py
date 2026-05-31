@@ -33,7 +33,7 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
             return
 
         text = _format_proposal_card(proposal)
-        keyboard = _build_commitment_keyboard(proposal_id)
+        keyboard = _build_commitment_keyboard(proposal_id, str(proposal.event_id))
         await send_telegram_message(group.telegram_chat_id, text, reply_markup=keyboard)
 
 
@@ -62,12 +62,12 @@ def _format_proposal_card(proposal) -> str:
     return "\n".join(lines)
 
 
-def _build_commitment_keyboard(proposal_id: str) -> dict:
+def _build_commitment_keyboard(proposal_id: str, event_id: str) -> dict:
     return {
         "inline_keyboard": [[
-            {"text": "👍 Interested", "callback_data": f"commit:soft:{proposal_id}"},
-            {"text": "✅ I'm In", "callback_data": f"commit:confirmed:{proposal_id}"},
-            {"text": "🔒 Lock In", "callback_data": f"commit:hard:{proposal_id}"},
+            {"text": "👍 Interested", "callback_data": f"commit:soft:{proposal_id}:{event_id}"},
+            {"text": "✅ I'm In",     "callback_data": f"commit:confirmed:{proposal_id}:{event_id}"},
+            {"text": "🔒 Lock In",    "callback_data": f"commit:hard:{proposal_id}:{event_id}"},
         ]]
     }
 

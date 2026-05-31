@@ -65,20 +65,16 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
 
     data = resp.json()
     event_id = data.get("event_id", "")
-    existing = data.get("existing", False)
 
     # Deep link vers le bot en DM — le bot y enverra le bouton WebApp
     bot_username = settings.telegram_bot_username or "OkederBot"
     deep_link = f"https://t.me/{bot_username}?start=event_{event_id}"
 
-    if existing:
-        intro = "⚡ <b>There's already an active event!</b>\nStill collecting preferences:"
-    else:
-        intro = (
-            "🎉 <b>Let's plan something!</b>\n\n"
-            "Tap the button below to submit your preferences privately.\n"
-            "Takes 30 seconds — no app needed."
-        )
+    intro = (
+        "🎉 <b>Let's plan something!</b>\n\n"
+        "Tap the button below to submit your preferences privately.\n"
+        "Takes 30 seconds — no app needed."
+    )
 
     # Bouton deep link → ouvre le bot en DM → le bot envoie le WebApp
     keyboard = InlineKeyboardMarkup([[
