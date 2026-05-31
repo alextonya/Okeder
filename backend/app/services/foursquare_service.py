@@ -81,11 +81,15 @@ async def search_venues(
         query_string = urllib.parse.urlencode(params)
         url = f"{FSQ_BASE}/places/search?{query_string}"
 
+        # Essayer avec et sans "Bearer" — selon le format de la clé
+        api_key = settings.foursquare_api_key
+        auth_header = api_key if api_key.startswith("fsq") else f"Bearer {api_key}"
+
         def _fetch():
             req = urllib.request.Request(
                 url,
                 headers={
-                    "Authorization": settings.foursquare_api_key,
+                    "Authorization": auth_header,
                     "Accept": "application/json",
                 },
             )

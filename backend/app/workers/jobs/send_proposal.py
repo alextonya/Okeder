@@ -41,11 +41,18 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
 
 
 def _format_proposal_card(proposal) -> str:
+    import urllib.parse
+
     lines = [f"<b>🎯 {proposal.title}</b>"]
     if proposal.venue_name:
         lines.append(f"📍 {proposal.venue_name}")
     if proposal.venue_address:
         lines.append(f"🗺 {proposal.venue_address}")
+        # Lien Google Maps cliquable
+        query = urllib.parse.quote(f"{proposal.venue_name or ''} {proposal.venue_address}".strip())
+        lines.append(f'<a href="https://maps.google.com/?q={query}">📌 View on Google Maps</a>')
+    elif proposal.external_url:
+        lines.append(f'<a href="{proposal.external_url}">🔗 More info</a>')
     if proposal.date_time:
         lines.append(f"🕐 {proposal.date_time.strftime('%A %d %b, %H:%M')}")
     elif proposal.legitimacy_json and proposal.legitimacy_json.get("datetime_hint") not in (None, "TBD", ""):
