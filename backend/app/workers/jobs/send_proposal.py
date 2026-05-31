@@ -30,17 +30,17 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
 
         group_result = await db.execute(select(Group).where(Group.id == event.group_id))
         group = group_result.scalar_one_or_none()
-        if not group or not group.telegram_chat_id:
-            return
 
-        prefix = ""
-        if proposal.version > 1:
-            prefix = f"🔄 <b>Updated proposal</b> (v{proposal.version} — more responses)\n\n"
-        text = prefix + _format_proposal_card(proposal)
-        keyboard = _build_commitment_keyboard(proposal_id, str(proposal.event_id))
-        await send_telegram_message(group.telegram_chat_id, text, reply_markup=keyboard)
+        # Telegram — seulement si le groupe a un chat_id
+        if group and group.telegram_chat_id:
+            prefix = ""
+            if proposal.version > 1:
+                prefix = f"🔄 <b>Updated proposal</b> (v{proposal.version} — more responses)\n\n"
+            text = prefix + _format_proposal_card(proposal)
+            keyboard = _build_commitment_keyboard(proposal_id, str(proposal.event_id))
+            await send_telegram_message(group.telegram_chat_id, text, reply_markup=keyboard)
 
-        # Email + Push aux participants non-Telegram
+        # Email + Push — toujours (PWA ou Telegram)
         await _notify_non_telegram(proposal, event, db)
 
 

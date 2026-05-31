@@ -183,6 +183,18 @@ async def share_page(event_id: str, request: Request, db: AsyncSession = Depends
     join_url = f"{base}/join/{event_id}"
     result_url = f"{base}/result/{event_id}"
 
+    # Vérifier si la proposal est déjà publiée → rediriger directement
+    from app.models.proposal import Proposal
+    prop_check = await db.execute(
+        select(Proposal).where(
+            Proposal.event_id == uuid.UUID(event_id),
+            Proposal.published == True,  # noqa: E712
+        ).limit(1)
+    )
+    if prop_check.scalar_one_or_none():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=result_url)
+
     # Compteur de réponses
     try:
         ev_result = await db.execute(
