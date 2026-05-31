@@ -124,6 +124,32 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     <div class="divider"></div>
 
+    <!-- DISPONIBILITÉS -->
+    <div class="section">
+      <span class="section-label">Quels jours ? <span style="font-weight:400;text-transform:none">(optionnel)</span></span>
+      <div class="chips" id="days-chips">
+        <span class="chip" data-group="days" data-val="monday">Lun</span>
+        <span class="chip" data-group="days" data-val="tuesday">Mar</span>
+        <span class="chip" data-group="days" data-val="wednesday">Mer</span>
+        <span class="chip" data-group="days" data-val="thursday">Jeu</span>
+        <span class="chip" data-group="days" data-val="friday">Ven</span>
+        <span class="chip" data-group="days" data-val="saturday">Sam</span>
+        <span class="chip" data-group="days" data-val="sunday">Dim</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <span class="section-label">Quel moment ? <span style="font-weight:400;text-transform:none">(optionnel)</span></span>
+      <div class="chips" id="times-chips">
+        <span class="chip" data-group="times" data-val="lunch">🌅 Déjeuner</span>
+        <span class="chip" data-group="times" data-val="after_work">🌆 Après le boulot</span>
+        <span class="chip" data-group="times" data-val="evening">🌙 Soirée</span>
+        <span class="chip" data-group="times" data-val="weekend">🎉 Week-end</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- ZONE GÉOGRAPHIQUE -->
     <div class="section">
       <span class="section-label">Votre zone<span class="required">*</span></span>
@@ -200,7 +226,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
     const BACKEND_URL = "{backend_url}";
 
     // Sélections courantes
-    const selected = {{ vibe: new Set(), activity: new Set() }};
+    const selected = {{ vibe: new Set(), activity: new Set(), days: new Set(), times: new Set() }};
     const singleSelected = {{ departure: null, travel: null }};
 
     // ─── Préremplissage au chargement ────────────────────────────────────────
@@ -259,6 +285,17 @@ MINI_APP_HTML = """<!DOCTYPE html>
           }}
         }}
       }}
+      // Jours
+      (data.days || []).forEach(v => {{
+        const chip = document.querySelector(`.chip[data-group="days"][data-val="${{v}}"]`);
+        if (chip) {{ chip.classList.add('selected'); selected.days.add(v); }}
+      }});
+      // Moments
+      (data.times || []).forEach(v => {{
+        const chip = document.querySelector(`.chip[data-group="times"][data-val="${{v}}"]`);
+        if (chip) {{ chip.classList.add('selected'); selected.times.add(v); }}
+      }});
+
       // Zone géographique (toujours visible maintenant)
       if (data.departure_text) {{
         document.getElementById('departure-text').value = data.departure_text;
@@ -356,6 +393,9 @@ MINI_APP_HTML = """<!DOCTYPE html>
         // Ambiance + activité
         vibe:             [...selected.vibe],
         activity:         [...selected.activity],
+        // Disponibilités
+        days:             [...selected.days],
+        times:            [...selected.times],
         // Localisation
         departure_type:   singleSelected.departure,
         departure_text:   depText || null,
@@ -466,6 +506,8 @@ async def submit_mini_app_preferences(
     raw_answers = {
         "vibe":            vibe,
         "activity":        activity,
+        "days":            body.get("days", []),
+        "times":           body.get("times", []),
         "departure_type":  body.get("departure_type"),
         "departure_text":  body.get("departure_text"),
         "travel_time_max": body.get("travel_time_max"),
@@ -570,6 +612,8 @@ async def get_existing_preferences(
         "found": True,
         "vibe":            raw.get("vibe", []),
         "activity":        raw.get("activity", []),
+        "days":            raw.get("days", []),
+        "times":           raw.get("times", []),
         "departure_type":  raw.get("departure_type"),
         "departure_text":  raw.get("departure_text"),
         "travel_time_max": raw.get("travel_time_max"),

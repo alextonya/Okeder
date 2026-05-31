@@ -41,11 +41,15 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
 
 
 def _format_proposal_card(proposal) -> str:
-    lines = [f"<b>📅 {proposal.title}</b>"]
+    lines = [f"<b>🎯 {proposal.title}</b>"]
     if proposal.venue_name:
         lines.append(f"📍 {proposal.venue_name}")
+    if proposal.venue_address:
+        lines.append(f"🗺 {proposal.venue_address}")
     if proposal.date_time:
         lines.append(f"🕐 {proposal.date_time.strftime('%A %d %b, %H:%M')}")
+    elif proposal.legitimacy_json and proposal.legitimacy_json.get("datetime_hint") not in (None, "TBD", ""):
+        lines.append(f"📅 {proposal.legitimacy_json['datetime_hint']}")
     if proposal.price_per_person:
         lines.append(f"💶 €{proposal.price_per_person / 100:.0f}/person")
 

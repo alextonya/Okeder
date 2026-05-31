@@ -54,7 +54,8 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         radius_km = max(2, spec.travel_time_max // 6)
 
         venue_data = await _search_venue(
-            category=spec.category or spec.vibe,
+            vibe=spec.vibe,
+            activity=spec.category,
             location=location,
             radius_km=radius_km,
             budget_max_cents=spec.budget_target_cents,
@@ -68,10 +69,15 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         last = version_result.scalar_one_or_none()
         next_version = (last.version + 1) if last else 1
 
+        # Construire le titre avec date hint
+        title = venue_data.get("title") or spec.title
+        if spec.datetime_hint and spec.datetime_hint != "TBD":
+            title = f"{title} — {spec.datetime_hint}"
+
         proposal = Proposal(
             event_id=uuid.UUID(event_id),
             version=next_version,
-            title=venue_data.get("title") or spec.title,
+            title=title,
             venue_name=venue_data.get("venue_name"),
             venue_address=venue_data.get("venue_address"),
             date_time=venue_data.get("date_time"),
@@ -104,65 +110,92 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
 
 
 async def _search_venue(
-    category: str,
+    vibe: str,
+    activity: str,
     location: str,
     radius_km: int,
     budget_max_cents: int,
 ) -> dict:
     """
-    Recherche un venue sur Eventbrite.
-    Retourne un dict avec les infos du venue, ou un dict vide si rien trouvé.
+    Recherche un venue : Foursquare en priorité, Eventbrite en fallback.
+    Retourne un dict normalisé ou {} si aucun résultat.
     """
+    import logging
+    log = logging.getLogger(__name__)
+
+    radius_m = max(500, radius_km * 1000)
+
+    # ─── 1. Foursquare (restaurants, bars, lieux) ─────────────────────────────
+    try:
+        from app.services.foursquare_service import search_venues, pick_best_venue
+
+        venues = await search_venues(
+            query=activity or vibe,
+            near=location,
+            radius_meters=radius_m,
+            vibe=vibe,
+            activity=activity,
+        )
+        venue = pick_best_venue(venues, budget_max_cents)
+        if venue:
+            rating_str = f"{venue['rating']:.1f}/10" if venue.get("rating") else ""
+            price_str = venue.get("price", "")
+            title = venue["name"]
+            if venue.get("category"):
+                title = f"{venue['name']} — {venue['category']}"
+            return {
+                "title":         title,
+                "venue_name":    venue["name"],
+                "venue_address": venue.get("address", ""),
+                "date_time":     None,
+                "price_cents":   None,  # Foursquare ne donne pas de prix exact
+                "url":           venue.get("url", ""),
+                "rating":        rating_str,
+                "price_level":   price_str,
+            }
+    except Exception as e:
+        log.warning(f"Foursquare search failed: {e}")
+
+    # ─── 2. Eventbrite fallback (concerts, shows ticketés) ────────────────────
     try:
         from app.services.eventbrite_service import search_events
 
         events = await search_events(
-            query=category,
+            query=activity or vibe,
             location=location,
             price_max_cents=budget_max_cents,
         )
-
-        if not events:
-            # Fallback : pas de venue spécifique, spec pure
-            return {}
-
-        best = events[0]
-        venue = best.get("venue") or {}
-        address = venue.get("address") or {}
-
-        # Parser le prix
-        price_cents = None
-        try:
-            price_val = best.get("ticket_availability", {}).get("minimum_ticket_price", {})
-            if price_val:
-                price_cents = int(float(price_val.get("major_value", 0)) * 100)
-        except (ValueError, TypeError):
-            pass
-
-        # Parser la date
-        date_time = None
-        try:
-            from datetime import datetime, timezone
-            start_str = best.get("start", {}).get("utc", "")
-            if start_str:
-                date_time = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            pass
-
-        return {
-            "title":         best.get("name", {}).get("text", ""),
-            "venue_name":    venue.get("name", ""),
-            "venue_address": address.get("localized_address_display", ""),
-            "date_time":     date_time,
-            "price_cents":   price_cents,
-            "url":           best.get("url", ""),
-        }
-
+        if events:
+            best = events[0]
+            venue = best.get("venue") or {}
+            address = venue.get("address") or {}
+            price_cents = None
+            try:
+                pv = best.get("ticket_availability", {}).get("minimum_ticket_price", {})
+                if pv:
+                    price_cents = int(float(pv.get("major_value", 0)) * 100)
+            except Exception:
+                pass
+            date_time = None
+            try:
+                from datetime import datetime
+                s = best.get("start", {}).get("utc", "")
+                if s:
+                    date_time = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except Exception:
+                pass
+            return {
+                "title":         best.get("name", {}).get("text", ""),
+                "venue_name":    venue.get("name", ""),
+                "venue_address": address.get("localized_address_display", ""),
+                "date_time":     date_time,
+                "price_cents":   price_cents,
+                "url":           best.get("url", ""),
+            }
     except Exception as e:
-        # Eventbrite indisponible → proposal sans venue spécifique
-        import logging
-        logging.getLogger(__name__).warning(f"Eventbrite search failed: {e}")
-        return {}
+        log.warning(f"Eventbrite fallback failed: {e}")
+
+    return {}
 
 
 async def enqueue_run_decision_engine(event_id: str) -> None:

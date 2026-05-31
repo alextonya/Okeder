@@ -26,6 +26,9 @@ class ProposalSpec:
     budget_target_cents: int = 0
     travel_time_max: int = 30   # minutes, médiane du groupe
     location_hint: str = ""     # zone géographique déduite
+    best_day: str = ""          # jour le plus voté (ex: "saturday")
+    best_time: str = ""         # moment le plus voté (ex: "evening")
+    datetime_hint: str = ""     # ex: "Saturday evening"
     hard_constraints: list[str] = field(default_factory=list)
 
     pct_budget_satisfied: float = 0.0
@@ -191,10 +194,39 @@ def run_engine(preferences: list[dict[str, Any]]) -> ProposalSpec:
     act_label  = act_labels.get(spec.category, spec.category)
     spec.title = f"{vibe_label} — {act_label}" if spec.category != spec.vibe else vibe_label
 
+    # ─── 8. Jour et moment ────────────────────────────────────────────────────
+    all_days: list[str] = []
+    all_times: list[str] = []
+    for r in raw_list:
+        all_days.extend(r.get("days") or [])
+        all_times.extend(r.get("times") or [])
+
+    day_labels = {
+        "monday": "Monday", "tuesday": "Tuesday", "wednesday": "Wednesday",
+        "thursday": "Thursday", "friday": "Friday",
+        "saturday": "Saturday", "sunday": "Sunday",
+    }
+    time_labels = {
+        "lunch": "lunchtime", "after_work": "after work",
+        "evening": "evening", "weekend": "over the weekend",
+    }
+
+    if all_days:
+        day_counts = Counter(all_days)
+        spec.best_day = day_counts.most_common(1)[0][0]
+    if all_times:
+        time_counts = Counter(all_times)
+        spec.best_time = time_counts.most_common(1)[0][0]
+
+    day_str = day_labels.get(spec.best_day, spec.best_day.capitalize()) if spec.best_day else ""
+    time_str = time_labels.get(spec.best_time, spec.best_time) if spec.best_time else ""
+    spec.datetime_hint = f"{day_str} {time_str}".strip() or "TBD"
+
     spec.legitimacy_json = {
         "vibe":                  spec.vibe,
         "activity":              spec.category,
         "location_hint":         spec.location_hint,
+        "datetime_hint":         spec.datetime_hint,
         "travel_time_max_min":   spec.travel_time_max,
         "budget_target_eur":     round(spec.budget_target_cents / 100, 2),
         "hard_constraints":      spec.hard_constraints,

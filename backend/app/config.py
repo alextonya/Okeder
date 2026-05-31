@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # Foursquare Places API (gratuit, 1000 req/jour)
+    foursquare_api_key: str = ""
+
     @property
     def is_dev(self) -> bool:
         return self.app_env == "development"
