@@ -17,6 +17,86 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+# ─── Matrice de compatibilité des vibes ───────────────────────────────────────
+# Une vibe est "compatible" avec une autre si elles peuvent coexister dans le même lieu.
+# Ex : casual + cosy → ok (bistro décontracté)
+# Ex : professional + festive → incompatibles (objectifs opposés)
+VIBE_COMPATIBLE: dict[str, set[str]] = {
+    "casual":       {"casual", "cosy", "outdoor"},
+    "cosy":         {"cosy", "casual", "cultural"},
+    "festive":      {"festive", "casual"},
+    "outdoor":      {"outdoor", "casual"},
+    "cultural":     {"cultural", "cosy"},
+    "professional": {"professional"},  # incompatible avec tout le reste
+}
+
+
+def _pick_vibe(
+    all_vibes: list[str],
+    preferences: list[dict],
+    spec: "ProposalSpec",
+) -> tuple[str, float]:
+    """
+    Choisit le vibe optimal en tenant compte de la compatibilité.
+
+    Algorithme :
+    1. Si un vibe gagne > 60% des membres → gagnant direct
+    2. Sinon → chercher le vibe maximisant le score de compatibilité
+       (voters directs + membres ayant voté pour un vibe compatible)
+    3. Si incompatibilité totale → flaguer le compromis
+
+    Retourne (vibe_choisi, pct_membres_satisfaits).
+    """
+    n = len(preferences)
+    if n == 0:
+        return "", 0.0
+
+    vibe_counts = Counter(all_vibes)
+    ranked = vibe_counts.most_common()
+
+    # Cas 1 : majorité claire > 60%
+    top_vibe, top_count = ranked[0]
+    top_pct = top_count / n
+    if top_pct > 0.60:
+        return top_vibe, top_pct
+
+    # Cas 2 : pas de majorité — chercher le vibe le plus compatible
+    # Score = votes directs + 0.5 × votes pour vibes compatibles
+    best_vibe = top_vibe
+    best_score = -1.0
+
+    for candidate, direct_votes in ranked:
+        compatible_set = VIBE_COMPATIBLE.get(candidate, {candidate})
+        # Votes des membres ayant choisi un vibe compatible (mais pas le candidat)
+        indirect_votes = sum(
+            cnt for v, cnt in vibe_counts.items()
+            if v != candidate and v in compatible_set
+        )
+        score = direct_votes + 0.5 * indirect_votes
+        if score > best_score:
+            best_score = score
+            best_vibe = candidate
+
+    # Membres "satisfaits" = ceux qui ont voté pour ce vibe OU un compatible
+    compatible_set = VIBE_COMPATIBLE.get(best_vibe, {best_vibe})
+    satisfied = sum(
+        1 for p in preferences
+        if any(v in compatible_set for v in (p.get("raw_answers") or {}).get("vibe", []))
+    )
+    pct = satisfied / n
+
+    # Cas 3 : incompatibilité totale (ex: professional vs festive)
+    if pct < 0.50:
+        spec.compromise_flagged = True
+        all_chosen = set(all_vibes)
+        spec.compromise_explanation = (
+            "Vibe conflict: " +
+            " vs ".join(sorted(all_chosen)) +
+            " — choosing " + best_vibe + " as best fit"
+        )
+
+    return best_vibe, pct
+
 
 @dataclass
 class ProposalSpec:
@@ -86,10 +166,7 @@ def run_engine(preferences: list[dict[str, Any]]) -> ProposalSpec:
         all_vibes.extend(r.get("vibe") or [])
 
     if all_vibes:
-        vibe_counts = Counter(all_vibes)
-        spec.vibe = vibe_counts.most_common(1)[0][0]
-        top_vibe_count = vibe_counts[spec.vibe]
-        spec.pct_prefs_satisfied = top_vibe_count / len(preferences)
+        spec.vibe, spec.pct_prefs_satisfied = _pick_vibe(all_vibes, preferences, spec)
     else:
         # Fallback sur category_prefs (ancien format bot DM)
         cats: list[str] = []
