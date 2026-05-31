@@ -48,55 +48,82 @@ def _format_proposal_card(proposal) -> str:  # noqa: C901
     lj = proposal.legitimacy_json or {}
     lines = []
 
-    # ─── Titre ────────────────────────────────────────────────────────────────
-    # Format : "🎯 The Union Bar — Pub"  (sans date — date sur sa propre ligne)
-    title = proposal.title or "Group Outing"
-    lines.append("<b>🎯 " + title + "</b>")
+    # ═══════════════════════════════════════════════════════════
+    # BLOC 1 — LE QUOI & LE QUAND
+    # ═══════════════════════════════════════════════════════════
+    VIBE_ICONS = {
+        "casual": "😌", "professional": "💼", "festive": "🎉",
+        "cosy": "🍵", "outdoor": "🌿", "cultural": "🎨",
+    }
+    ACTIVITY_ICONS = {
+        "dinner": "🍽", "drinks": "🍸", "brunch": "☕",
+        "lunch": "🥗", "cinema": "🎬", "concert": "🎵", "activity": "🎮",
+    }
 
-    # ─── Lieu ─────────────────────────────────────────────────────────────────
-    if proposal.venue_name:
-        lines.append("📍 " + proposal.venue_name)
-    if proposal.venue_address:
-        lines.append("🗺 " + proposal.venue_address)
+    vibe     = lj.get("vibe_proposed") or lj.get("vibe") or ""
+    activity = lj.get("activity") or ""
 
-    # Google Maps — seulement si données valides
-    gmaps_url = ""
-    if proposal.external_url and "maps.google" in proposal.external_url:
-        v_lat = lj.get("venue_lat")
-        v_lng = lj.get("venue_lng")
-        if v_lat and v_lng:
-            gmaps_url = "https://maps.google.com/?q=" + str(v_lat) + "," + str(v_lng) + "&z=16"
-        elif proposal.venue_name and proposal.venue_address:
-            q = _ul.quote(proposal.venue_name + ", " + proposal.venue_address)
-            gmaps_url = "https://maps.google.com/?q=" + q
-    if gmaps_url:
-        lines.append('<a href="' + gmaps_url + '">📌 Open in Google Maps</a>')
+    vibe_icon = VIBE_ICONS.get(vibe, "🎯")
+    act_icon  = ACTIVITY_ICONS.get(activity, "")
 
-    # ─── Date ─────────────────────────────────────────────────────────────────
+    what = vibe_icon + " " + vibe.capitalize() if vibe else "🎯 Group Outing"
+    if activity and activity != vibe:
+        what += "  " + act_icon + " " + activity.capitalize()
+    lines.append("<b>" + what + "</b>")
+
+    # Date
     date_label = ""
-    cal_url = ""
-
+    cal_start = cal_end = ""
     if proposal.date_time:
         dt = proposal.date_time
         date_label = dt.strftime("%A %d %B at %H:%M")
-        cal_start = dt.strftime("%Y%m%dT%H%M%S")
-        cal_end = (dt + _td(hours=2)).strftime("%Y%m%dT%H%M%S")
+        cal_start  = dt.strftime("%Y%m%dT%H%M%S")
+        cal_end    = (dt + _td(hours=2)).strftime("%Y%m%dT%H%M%S")
     elif lj.get("datetime_hint") and lj["datetime_hint"] not in ("TBD", ""):
         date_label = lj["datetime_hint"]
-        date_iso = lj.get("proposed_date_iso")
-        hour = int(lj.get("proposed_hour", 19))
+        date_iso   = lj.get("proposed_date_iso")
+        hour       = int(lj.get("proposed_hour", 19))
         if date_iso:
-            from datetime import date as _date
-            d = _date.fromisoformat(date_iso)
+            from datetime import date as _d
+            d = _d.fromisoformat(date_iso)
             cal_start = d.strftime("%Y%m%d") + "T" + str(hour).zfill(2) + "0000"
             cal_end   = d.strftime("%Y%m%d") + "T" + str(min(hour + 2, 23)).zfill(2) + "0000"
-        else:
-            cal_start = cal_end = ""
 
     if date_label:
         lines.append("📅 " + date_label)
 
-    # Lien calendrier si on a une date précise
+    lines.append("")
+
+    # ═══════════════════════════════════════════════════════════
+    # BLOC 2 — LE OÙ (lieu physique)
+    # ═══════════════════════════════════════════════════════════
+    if proposal.venue_name:
+        lines.append("<b>📍 " + proposal.venue_name + "</b>")
+    if proposal.venue_address:
+        lines.append("🗺 " + proposal.venue_address)
+
+    # Lien Google Maps vers le lieu physique exact
+    v_lat = lj.get("venue_lat")
+    v_lng = lj.get("venue_lng")
+    if v_lat and v_lng:
+        # Coordonnées GPS → pointe directement sur le bâtiment
+        gmaps = "https://maps.google.com/?q=" + str(v_lat) + "," + str(v_lng) + "&z=17"
+    elif proposal.venue_name and proposal.venue_address:
+        # Nom + adresse → recherche Google Maps
+        q = _ul.quote(proposal.venue_name + ", " + proposal.venue_address)
+        gmaps = "https://maps.google.com/?q=" + q
+    elif proposal.venue_name:
+        gmaps = "https://maps.google.com/?q=" + _ul.quote(proposal.venue_name)
+    else:
+        gmaps = ""
+
+    if gmaps:
+        lines.append('<a href="' + gmaps + '">📌 Open in Google Maps</a>')
+
+    if proposal.price_per_person and proposal.price_per_person > 0:
+        lines.append("💶 ~€" + str(int(proposal.price_per_person / 100)) + "/person")
+
+    # Lien calendrier
     if cal_start and cal_end:
         venue_loc = _ul.quote((proposal.venue_name or "") + " " + (proposal.venue_address or ""))
         cal_title = _ul.quote("Okeder: " + (proposal.venue_name or "Group Outing"))
@@ -108,14 +135,12 @@ def _format_proposal_card(proposal) -> str:  # noqa: C901
         )
         lines.append('<a href="' + cal_url + '">📆 Add to Google Calendar</a>')
 
-    # Budget
-    if proposal.price_per_person and proposal.price_per_person > 0:
-        lines.append("💶 ~€" + str(int(proposal.price_per_person / 100)) + "/person")
-
     lines.append("")
     lines.append("─────────────────")
 
-    # ─── Métriques ────────────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════
+    # BLOC 3 — POURQUOI (métriques)
+    # ═══════════════════════════════════════════════════════════
     if proposal.pct_budget_satisfied is not None:
         pct = float(proposal.pct_budget_satisfied) * 100
         lines.append(("✅" if pct >= 70 else "⚠️") + " Budget: " + str(int(pct)) + "% satisfied")
@@ -124,17 +149,12 @@ def _format_proposal_card(proposal) -> str:  # noqa: C901
         pct = float(proposal.pct_time_satisfied) * 100
         lines.append(("✅" if pct >= 70 else "⚠️") + " Timing: " + str(int(pct)) + "% satisfied")
 
-    # Vibe & Activity — une seule ligne au format demandé
-    vibe     = lj.get("vibe_proposed") or lj.get("vibe") or ""
-    activity = lj.get("activity") or ""
-    pct_v    = float(proposal.pct_prefs_satisfied or 0) * 100
+    pct_v = float(proposal.pct_prefs_satisfied or 0) * 100
     if vibe:
-        vibe_cap = vibe.capitalize()
         act_cap  = activity.capitalize() if activity and activity != vibe else ""
-        label    = vibe_cap + (" + " + act_cap if act_cap else "")
+        label    = vibe.capitalize() + (" + " + act_cap if act_cap else "")
         lines.append(("✅" if pct_v >= 70 else "⚠️") + " Vibe & Activity (" + label + "): " + str(int(pct_v)) + "% match")
 
-    # ─── Distances ────────────────────────────────────────────────────────────
     distances = lj.get("distances", [])
     if distances:
         times = [d["est_min"] for d in distances]
@@ -151,7 +171,6 @@ def _format_proposal_card(proposal) -> str:  # noqa: C901
             n = len(over)
             lines.append("⚠️ " + str(n) + " participant" + ("s" if n > 1 else "") + " exceed" + ("" if n > 1 else "s") + " their stated travel maximum")
 
-    # Compromis date/budget
     if proposal.compromise_flagged and proposal.compromise_explanation:
         lines.append("⚠️ " + proposal.compromise_explanation)
 
