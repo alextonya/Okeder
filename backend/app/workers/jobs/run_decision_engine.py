@@ -59,6 +59,8 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
             location=location,
             radius_km=radius_km,
             budget_max_cents=spec.budget_target_cents,
+            midpoint_lat=spec.midpoint_lat,
+            midpoint_lng=spec.midpoint_lng,
         )
 
         # ─── 4. Créer la proposal en DB ───────────────────────────────────────
@@ -115,6 +117,8 @@ async def _search_venue(
     location: str,
     radius_km: int,
     budget_max_cents: int,
+    midpoint_lat: float | None = None,
+    midpoint_lng: float | None = None,
 ) -> dict:
     """
     Recherche un venue : Foursquare en priorité, Eventbrite en fallback.
@@ -135,6 +139,7 @@ async def _search_venue(
             radius_meters=radius_m,
             vibe=vibe,
             activity=activity,
+            ll=f"{midpoint_lat},{midpoint_lng}" if midpoint_lat and midpoint_lng else None,
         )
         venue = pick_best_venue(venues, budget_max_cents)
         if venue:

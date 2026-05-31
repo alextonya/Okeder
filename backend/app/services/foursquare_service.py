@@ -37,6 +37,7 @@ async def search_venues(
     vibe: str = "",
     activity: str = "",
     limit: int = 5,
+    ll: str | None = None,   # "lat,lng" — prioritaire sur near si fourni
 ) -> list[dict]:
     """
     Recherche des venues via Foursquare Places API.
@@ -46,7 +47,6 @@ async def search_venues(
         logger.warning("FOURSQUARE_API_KEY non definie — recherche venue desactivee")
         return []
 
-    logger.info(f"Foursquare search: query='{query}' near='{near}' radius={radius_meters}m")
 
     # Construire les catégories à partir de la vibe et de l'activité
     cats: set[int] = set()
@@ -58,13 +58,19 @@ async def search_venues(
 
     params: dict = {
         "query":      query or activity or vibe or "restaurant",
-        "near":       near,
         "radius":     radius_meters,
         "limit":      limit,
         "categories": ",".join(str(c) for c in cats),
         "fields":     "name,location,rating,categories,fsq_id,website,price,photos",
         "sort":       "RATING",
     }
+    # Priorité aux coordonnées exactes (midpoint), fallback sur texte
+    if ll:
+        params["ll"] = ll
+    else:
+        params["near"] = near
+
+    logger.info(f"Foursquare search: query='{params['query']}' {'ll='+ll if ll else 'near='+near} radius={radius_meters}m")
 
     try:
         import asyncio

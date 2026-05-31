@@ -26,9 +26,11 @@ class ProposalSpec:
     budget_target_cents: int = 0
     travel_time_max: int = 30   # minutes, médiane du groupe
     location_hint: str = ""     # zone géographique déduite
-    best_day: str = ""          # jour le plus voté (ex: "saturday")
-    best_time: str = ""         # moment le plus voté (ex: "evening")
-    datetime_hint: str = ""     # ex: "Saturday evening"
+    best_day: str = ""
+    best_time: str = ""
+    datetime_hint: str = ""
+    midpoint_lat: float | None = None   # midpoint géographique
+    midpoint_lng: float | None = None
     hard_constraints: list[str] = field(default_factory=list)
 
     pct_budget_satisfied: float = 0.0
@@ -130,8 +132,25 @@ def run_engine(preferences: list[dict[str, Any]]) -> ProposalSpec:
         if r.get("departure_type")
     ]
 
-    if departure_texts:
-        # Utilise le texte le plus fréquent ou le premier
+    # Essayer de calculer le midpoint géographique depuis les coordonnées
+    coords = [
+        (r.get("departure_lat"), r.get("departure_lng"))
+        for r in raw_list
+        if r.get("departure_lat") and r.get("departure_lng")
+    ]
+
+    if coords:
+        # Midpoint = moyenne des lat/lng
+        mid_lat = sum(c[0] for c in coords) / len(coords)
+        mid_lng = sum(c[1] for c in coords) / len(coords)
+        spec.midpoint_lat = mid_lat
+        spec.midpoint_lng = mid_lng
+        # Texte de fallback depuis les noms
+        if departure_texts:
+            spec.location_hint = departure_texts[0]
+        else:
+            spec.location_hint = f"{mid_lat:.4f},{mid_lng:.4f}"
+    elif departure_texts:
         type_counts = Counter(departure_texts)
         spec.location_hint = type_counts.most_common(1)[0][0]
     elif departure_types:

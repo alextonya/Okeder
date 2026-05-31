@@ -151,14 +151,23 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     <div class="divider"></div>
 
-    <!-- ZONE GÉOGRAPHIQUE -->
+    <!-- ZONE GÉOGRAPHIQUE — autocomplete Nominatim -->
     <div class="section">
-      <span class="section-label">Votre zone<span class="required">*</span></span>
-      <input type="text" id="departure-text"
-        placeholder="Quartier, station de métro, ville… ex: Bastille, Clapham, Nation">
-      <p class="hint" style="margin-top:6px">
-        Aide à trouver le lieu idéal pour tout le groupe.
-      </p>
+      <span class="section-label">Votre point de départ<span class="required">*</span></span>
+      <div style="position:relative">
+        <input type="text" id="departure-text" autocomplete="off"
+          placeholder="Commence à taper une adresse, quartier ou ville…"
+          oninput="onDepartureInput(this.value)">
+        <div id="departure-suggestions" style="
+          display:none; position:absolute; top:100%; left:0; right:0; z-index:100;
+          background:var(--tg-theme-secondary-bg-color,#1e293b);
+          border:1.5px solid rgba(255,255,255,0.15); border-top:none; border-radius:0 0 12px 12px;
+          max-height:200px; overflow-y:auto;
+        "></div>
+      </div>
+      <input type="hidden" id="departure-lat" value="">
+      <input type="hidden" id="departure-lng" value="">
+      <p class="hint" style="margin-top:6px" id="departure-selected-hint"></p>
     </div>
 
     <!-- CONTEXTE DE DÉPART -->
@@ -368,6 +377,55 @@ MINI_APP_HTML = """<!DOCTYPE html>
       }});
     }});
 
+    // ─── Autocomplete adresse (Nominatim OpenStreetMap, gratuit) ─────────────
+    let _nominatimTimer = null;
+    let _departureConfirmed = false;
+
+    async function onDepartureInput(val) {{
+      _departureConfirmed = false;
+      document.getElementById('departure-lat').value = '';
+      document.getElementById('departure-lng').value = '';
+      document.getElementById('departure-selected-hint').textContent = '';
+
+      clearTimeout(_nominatimTimer);
+      const box = document.getElementById('departure-suggestions');
+
+      if (val.length < 3) {{ box.style.display = 'none'; return; }}
+
+      _nominatimTimer = setTimeout(async () => {{
+        try {{
+          const url = `https://nominatim.openstreetmap.org/search?q=${{encodeURIComponent(val)}}&format=json&limit=5&addressdetails=1`;
+          const resp = await fetch(url, {{ headers: {{ 'Accept-Language': 'fr,en' }} }});
+          const results = await resp.json();
+
+          box.innerHTML = '';
+          if (!results.length) {{ box.style.display = 'none'; return; }}
+
+          results.forEach(r => {{
+            const item = document.createElement('div');
+            item.textContent = r.display_name;
+            item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.07);';
+            item.addEventListener('mousedown', () => {{
+              document.getElementById('departure-text').value = r.display_name.split(',').slice(0,3).join(',').trim();
+              document.getElementById('departure-lat').value = r.lat;
+              document.getElementById('departure-lng').value = r.lon;
+              document.getElementById('departure-selected-hint').textContent = '✅ ' + r.display_name.split(',').slice(0,4).join(', ');
+              box.style.display = 'none';
+              _departureConfirmed = true;
+            }});
+            box.appendChild(item);
+          }});
+          box.style.display = 'block';
+        }} catch(e) {{
+          box.style.display = 'none';
+        }}
+      }}, 400);
+    }}
+
+    document.getElementById('departure-text').addEventListener('blur', () => {{
+      setTimeout(() => {{ document.getElementById('departure-suggestions').style.display = 'none'; }}, 200);
+    }});
+
     async function submitPrefs() {{
       // Validation
       if (selected.vibe.size === 0) {{
@@ -375,8 +433,10 @@ MINI_APP_HTML = """<!DOCTYPE html>
         return;
       }}
       const depText = document.getElementById('departure-text').value.trim();
+      const depLat  = document.getElementById('departure-lat').value;
+      const depLng  = document.getElementById('departure-lng').value;
       if (!depText) {{
-        alert('Indique ta zone (quartier, station, ville…)');
+        alert('Indique ton point de départ');
         document.getElementById('departure-text').focus();
         return;
       }}
@@ -406,9 +466,11 @@ MINI_APP_HTML = """<!DOCTYPE html>
         preferred_date:   document.getElementById('preferred-date').value || null,
         date_margin_days: parseInt(singleSelected.margin || '5'),
         times:            [...selected.times],
-        // Localisation
+        // Localisation avec coordonnées
         departure_type:   singleSelected.departure,
         departure_text:   depText || null,
+        departure_lat:    depLat ? parseFloat(depLat) : null,
+        departure_lng:    depLng ? parseFloat(depLng) : null,
         travel_time_max:  parseInt(singleSelected.travel),
         // Budget
         budget_min:  budgetMin ? Math.round(parseFloat(budgetMin) * 100) : null,
@@ -521,6 +583,8 @@ async def submit_mini_app_preferences(
         "times":           body.get("times", []),
         "departure_type":  body.get("departure_type"),
         "departure_text":  body.get("departure_text"),
+        "departure_lat":   body.get("departure_lat"),
+        "departure_lng":   body.get("departure_lng"),
         "travel_time_max": body.get("travel_time_max"),
         "budget_min":      body.get("budget_min"),
         "budget_max":      body.get("budget_max"),
