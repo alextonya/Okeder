@@ -159,12 +159,14 @@ async def _send_summary_dm(
             )
         ])
 
-    try:
-        await context.bot.send_message(
-            chat_id=telegram_user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard_rows),
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"DM summary failed: {e}")
+    # Construire le keyboard dict pour urllib
+    keyboard_dict = {"inline_keyboard": [
+        [{"text": btn.text, "callback_data": btn.callback_data}
+         if btn.callback_data else
+         {"text": btn.text, "web_app": {"url": btn.web_app.url}}
+         for btn in row]
+        for row in keyboard_rows
+    ]}
+
+    from bot.telegram_utils import send_message as _send
+    await _send(chat_id=telegram_user_id, text=text, reply_markup=keyboard_dict)

@@ -194,39 +194,66 @@ def run_engine(preferences: list[dict[str, Any]]) -> ProposalSpec:
     act_label  = act_labels.get(spec.category, spec.category)
     spec.title = f"{vibe_label} — {act_label}" if spec.category != spec.vibe else vibe_label
 
-    # ─── 8. Jour et moment ────────────────────────────────────────────────────
-    all_days: list[str] = []
+    # ─── 8. Date préférée + marge ─────────────────────────────────────────────
+    from datetime import datetime, timedelta
+
     all_times: list[str] = []
+    dates_with_margin: list[tuple] = []  # (preferred_date, margin_days)
+
     for r in raw_list:
-        all_days.extend(r.get("days") or [])
         all_times.extend(r.get("times") or [])
+        d = r.get("preferred_date")
+        m = r.get("date_margin_days") or 5
+        if d:
+            try:
+                dates_with_margin.append((datetime.fromisoformat(d).date(), int(m)))
+            except ValueError:
+                pass
 
-    day_labels = {
-        "monday": "Monday", "tuesday": "Tuesday", "wednesday": "Wednesday",
-        "thursday": "Thursday", "friday": "Friday",
-        "saturday": "Saturday", "sunday": "Sunday",
-    }
     time_labels = {
-        "lunch": "lunchtime", "after_work": "after work",
-        "evening": "evening", "weekend": "over the weekend",
+        "lunch":      "lunchtime",
+        "after_work": "after work",
+        "evening":    "evening",
+        "weekend":    "over the weekend",
     }
 
-    if all_days:
-        day_counts = Counter(all_days)
-        spec.best_day = day_counts.most_common(1)[0][0]
     if all_times:
         time_counts = Counter(all_times)
         spec.best_time = time_counts.most_common(1)[0][0]
-
-    day_str = day_labels.get(spec.best_day, spec.best_day.capitalize()) if spec.best_day else ""
     time_str = time_labels.get(spec.best_time, spec.best_time) if spec.best_time else ""
-    spec.datetime_hint = f"{day_str} {time_str}".strip() or "TBD"
+
+    # Trouver la plage de dates commune (intersection des fenêtres)
+    if dates_with_margin:
+        # Chaque membre a une fenêtre [date - margin, date + margin]
+        # Intersection = [max des starts, min des ends]
+        windows = [(d - timedelta(days=m), d + timedelta(days=m)) for d, m in dates_with_margin]
+        common_start = max(w[0] for w in windows)
+        common_end = min(w[1] for w in windows)
+
+        if common_start <= common_end:
+            # Fenêtre commune trouvée → point médian
+            mid_date = common_start + (common_end - common_start) // 2
+            spec.best_day = mid_date.strftime("%A").lower()
+            date_str = mid_date.strftime("%d %b")
+            spec.datetime_hint = f"{date_str} {time_str}".strip()
+        else:
+            # Pas d'overlap → utiliser la date médiane (compromis)
+            spec.compromise_flagged = True
+            spec.compromise_explanation = "No common date window — using median date"
+            all_dates = sorted(d for d, _ in dates_with_margin)
+            mid = all_dates[len(all_dates) // 2]
+            date_str = mid.strftime("%d %b")
+            spec.datetime_hint = f"~{date_str} {time_str}".strip()
+    elif time_str:
+        spec.datetime_hint = time_str.capitalize()
+    else:
+        spec.datetime_hint = "TBD"
 
     spec.legitimacy_json = {
         "vibe":                  spec.vibe,
         "activity":              spec.category,
         "location_hint":         spec.location_hint,
-        "datetime_hint":         spec.datetime_hint,
+        "datetime_hint":         spec.datetime_hint or "TBD",
         "travel_time_max_min":   spec.travel_time_max,
         "budget_target_eur":     round(spec.budget_target_cents / 100, 2),
         "hard_constraints":      spec.hard_constraints,

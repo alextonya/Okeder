@@ -126,15 +126,16 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     <!-- DISPONIBILITÉS -->
     <div class="section">
-      <span class="section-label">Quels jours ? <span style="font-weight:400;text-transform:none">(optionnel)</span></span>
-      <div class="chips" id="days-chips">
-        <span class="chip" data-group="days" data-val="monday">Lun</span>
-        <span class="chip" data-group="days" data-val="tuesday">Mar</span>
-        <span class="chip" data-group="days" data-val="wednesday">Mer</span>
-        <span class="chip" data-group="days" data-val="thursday">Jeu</span>
-        <span class="chip" data-group="days" data-val="friday">Ven</span>
-        <span class="chip" data-group="days" data-val="saturday">Sam</span>
-        <span class="chip" data-group="days" data-val="sunday">Dim</span>
+      <span class="section-label">Date idéale <span style="font-weight:400;text-transform:none">(optionnel)</span></span>
+      <input type="date" id="preferred-date" style="color-scheme:dark">
+      <div style="margin-top:10px">
+        <span style="font-size:12px;color:var(--tg-theme-hint-color,#64748b);display:block;margin-bottom:8px">FLEXIBILITÉ</span>
+        <div class="chips" id="margin-chips">
+          <span class="chip single" data-group="margin" data-val="1">± 1 jour</span>
+          <span class="chip single" data-group="margin" data-val="3">± 3 jours</span>
+          <span class="chip single selected" data-group="margin" data-val="5">± 5 jours</span>
+          <span class="chip single" data-group="margin" data-val="14">± 2 sem</span>
+        </div>
       </div>
     </div>
 
@@ -226,7 +227,8 @@ MINI_APP_HTML = """<!DOCTYPE html>
     const BACKEND_URL = "{backend_url}";
 
     // Sélections courantes
-    const selected = {{ vibe: new Set(), activity: new Set(), days: new Set(), times: new Set() }};
+    const selected = {{ vibe: new Set(), activity: new Set(), times: new Set() }};
+    singleSelected.margin = '5';  // défaut ± 5 jours
     const singleSelected = {{ departure: null, travel: null }};
 
     // ─── Préremplissage au chargement ────────────────────────────────────────
@@ -285,11 +287,19 @@ MINI_APP_HTML = """<!DOCTYPE html>
           }}
         }}
       }}
-      // Jours
-      (data.days || []).forEach(v => {{
-        const chip = document.querySelector(`.chip[data-group="days"][data-val="${{v}}"]`);
-        if (chip) {{ chip.classList.add('selected'); selected.days.add(v); }}
-      }});
+      // Date idéale
+      if (data.preferred_date) {{
+        document.getElementById('preferred-date').value = data.preferred_date;
+      }}
+      // Marge
+      if (data.date_margin_days) {{
+        const mchip = document.querySelector(`.chip.single[data-group="margin"][data-val="${{data.date_margin_days}}"]`);
+        if (mchip) {{
+          document.querySelectorAll('.chip.single[data-group="margin"]').forEach(c => c.classList.remove('selected'));
+          mchip.classList.add('selected');
+          singleSelected.margin = String(data.date_margin_days);
+        }}
+      }}
       // Moments
       (data.times || []).forEach(v => {{
         const chip = document.querySelector(`.chip[data-group="times"][data-val="${{v}}"]`);
@@ -394,7 +404,8 @@ MINI_APP_HTML = """<!DOCTYPE html>
         vibe:             [...selected.vibe],
         activity:         [...selected.activity],
         // Disponibilités
-        days:             [...selected.days],
+        preferred_date:   document.getElementById('preferred-date').value || null,
+        date_margin_days: parseInt(singleSelected.margin || '5'),
         times:            [...selected.times],
         // Localisation
         departure_type:   singleSelected.departure,
@@ -506,7 +517,8 @@ async def submit_mini_app_preferences(
     raw_answers = {
         "vibe":            vibe,
         "activity":        activity,
-        "days":            body.get("days", []),
+        "preferred_date":  body.get("preferred_date"),
+        "date_margin_days": body.get("date_margin_days", 5),
         "times":           body.get("times", []),
         "departure_type":  body.get("departure_type"),
         "departure_text":  body.get("departure_text"),
@@ -612,7 +624,8 @@ async def get_existing_preferences(
         "found": True,
         "vibe":            raw.get("vibe", []),
         "activity":        raw.get("activity", []),
-        "days":            raw.get("days", []),
+        "preferred_date":  raw.get("preferred_date"),
+        "date_margin_days": raw.get("date_margin_days", 5),
         "times":           raw.get("times", []),
         "departure_type":  raw.get("departure_type"),
         "departure_text":  raw.get("departure_text"),
