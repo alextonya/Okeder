@@ -4,7 +4,7 @@ Après chaque commitment → DM récapitulatif avec préférences + options.
 """
 import os
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
 from bot.api_client import backend_client
@@ -30,7 +30,10 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
 
     # Ignorer le bouton "current" (noop)
     if query.data == "noop":
-        await query.answer(text="That's your current choice.", show_alert=False)
+        try:
+            await query.answer(text="That's your current choice.", show_alert=False)
+        except Exception:
+            pass
         return
 
     parts = query.data.split(":")
@@ -41,9 +44,12 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
     event_id = parts[3] if len(parts) > 3 else None
     user = query.from_user
 
-    # 1. Toast immédiat (avant l'appel API pour éviter le timeout Telegram)
+    # 1. Toast immédiat — try/except car TLS intermittent sur Python 3.14
     label = LEVEL_LABELS.get(level, level)
-    await query.answer(text=f"{label} — noted!", show_alert=False)
+    try:
+        await query.answer(text=f"{label} — noted!", show_alert=False)
+    except Exception:
+        pass  # Toast non critique — on continue
 
     # 2. Enregistrer le commitment — le backend retourne l'event_id complet
     async with backend_client() as api:
@@ -161,12 +167,15 @@ async def _send_summary_dm(
                 )
             ])
 
-    # Bouton "Modifier" uniquement si PUBLIC_URL est défini (URL publique valide)
+    # Bouton "Modifier" — WebAppInfo en DM = initData disponible = préremplissage
     public_url = os.environ.get("PUBLIC_URL", "")
-    if public_url and public_url.startswith("https://"):
+    if public_url and public_url.startswith("https://") and event_id:
         mini_app_url = f"{public_url}/mini-app/{event_id}"
         keyboard_rows.insert(0, [
-            InlineKeyboardButton("✏️ Modify my preferences", url=mini_app_url)
+            InlineKeyboardButton(
+                "✏️ Modify my preferences",
+                web_app=WebAppInfo(url=mini_app_url),
+            )
         ])
 
     try:
