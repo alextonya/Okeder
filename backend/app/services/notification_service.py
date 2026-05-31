@@ -1,31 +1,49 @@
 """
-Dispatch de notifications vers Telegram bot ou WhatsApp (templates uniquement).
-WhatsApp = canal de notification seulement. Aucune collecte de données comportementales via API.
+Dispatch de notifications vers Telegram ou WhatsApp.
+Utilise urllib (stdlib) au lieu de httpx pour éviter le bug TLS anyio/Python 3.14.
 """
+import asyncio
+import json
+import urllib.error
+import urllib.request
+
 import httpx
 
 from app.config import settings
 
 
-async def send_telegram_message(chat_id: int | str, text: str, reply_markup: dict | None = None) -> None:
-    import asyncio
-    payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+async def send_telegram_message(
+    chat_id: int | str, text: str, reply_markup: dict | None = None
+) -> None:
+    """Envoie un message Telegram via urllib (pas d'httpx — évite bug TLS anyio)."""
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    # Retry x3 — TLS intermittent sur Python 3.14 + anyio
-    for attempt in range(3):
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+
+    def _send():
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
-                    f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                    json=payload,
-                )
-            return
-        except Exception:
-            if attempt < 2:
-                await asyncio.sleep(0.5)
-            # Dernier essai échoué → silencieux (le DM est best-effort)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            # 400/403 → log mais pas d'erreur bloquante
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Telegram sendMessage {e.code}: {e.read().decode()[:200]}"
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Telegram sendMessage failed: {e}")
+
+    # Exécuter en thread pour ne pas bloquer l'event loop async
+    await asyncio.to_thread(_send)
 
 
 async def send_whatsapp_template(phone: str, template_name: str, params: list[str]) -> None:
@@ -37,7 +55,9 @@ async def send_whatsapp_template(phone: str, template_name: str, params: list[st
         "template": {
             "name": template_name,
             "language": {"code": "en"},
-            "components": [{"type": "body", "parameters": [{"type": "text", "text": p} for p in params]}],
+            "components": [
+                {"type": "body", "parameters": [{"type": "text", "text": p} for p in params]}
+            ],
         },
     }
     async with httpx.AsyncClient() as client:
