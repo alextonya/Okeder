@@ -239,6 +239,8 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     const EVENT_ID = "{event_id}";
     const BACKEND_URL = "{backend_url}";
+    // next_url : page vers laquelle rediriger après soumission (optionnel)
+    const NEXT_URL = new URLSearchParams(window.location.search).get('next') || "";
 
     // Sélections courantes
     const selected = {{ vibe: new Set(), activity: new Set(), times: new Set() }};
@@ -494,6 +496,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
         init_data:        tg.initData || "",
         display_name:     name,
         notify_email:     document.getElementById('notify-email').value.trim() || null,
+        next_url:         NEXT_URL || null,
         event_id:         EVENT_ID,
         // Ambiance + activité
         vibe:             [...selected.vibe],
@@ -526,10 +529,17 @@ MINI_APP_HTML = """<!DOCTYPE html>
         }});
 
         if (res.ok) {{
+          const data = await res.json().catch(() => ({{}}));
           document.getElementById('form-view').style.display = 'none';
           const sv = document.getElementById('success-view');
           sv.style.display = 'flex';
-          setTimeout(() => tg.close(), 2500);
+          // Redirection : next_url (PWA) ou fermeture Telegram
+          const redirectTo = data.next_url || NEXT_URL;
+          if (redirectTo) {{
+            setTimeout(() => window.location.href = redirectTo, 1500);
+          }} else {{
+            setTimeout(() => tg.close(), 2500);
+          }}
         }} else {{
           btn.disabled = false;
           btn.textContent = 'Envoyer mes préférences';
@@ -670,7 +680,9 @@ async def submit_mini_app_preferences(
         import logging
         logging.getLogger(__name__).warning(f"check_and_trigger_engine: {e}")
 
-    return {"ok": True}
+    # Si next_url fourni dans le body → renvoyer l'URL de redirection
+    next_url = body.get("next_url")
+    return {"ok": True, "next_url": next_url}
 
 
 @router.post("/mini-app/{event_id}/prefill")

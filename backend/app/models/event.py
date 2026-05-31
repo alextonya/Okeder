@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,10 +28,11 @@ class Event(UUIDMixin, TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, default=EventStatus.COLLECTING)
     constraint_deadline: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Localisation pour la recherche Eventbrite (ex: "Paris", "Bastille", "London")
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Wizard of Oz: initiateur gère manuellement jusqu'à désactivation
     wizard_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Nombre de participants attendus (déclaré par l'organisateur)
+    # 0 = non déclaré → fallback sur membres en DB
+    expected_participants: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("members.id"), nullable=True
     )

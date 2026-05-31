@@ -119,18 +119,22 @@ async def _check_and_trigger_engine_inner(event_id: str, db) -> None:
     if event.status not in eligible_statuses:
         return
 
-    # ─── 2. Compter les membres humains ───────────────────────────────────────
-    bot_id = _get_bot_id()
-    members_result = await db.execute(
-        select(Member)
-        .join(GroupMembership, Member.id == GroupMembership.member_id)
-        .where(
-            GroupMembership.group_id == event.group_id,
-            Member.telegram_user_id != bot_id,
+    # ─── 2. Nombre total attendu ──────────────────────────────────────────────
+    # Priorité : expected_participants (déclaré via PWA) > membres DB (Telegram)
+    if event.expected_participants and event.expected_participants > 0:
+        total = event.expected_participants
+    else:
+        bot_id = _get_bot_id()
+        members_result = await db.execute(
+            select(Member)
+            .join(GroupMembership, Member.id == GroupMembership.member_id)
+            .where(
+                GroupMembership.group_id == event.group_id,
+                Member.telegram_user_id != bot_id,
+            )
         )
-    )
-    human_members = members_result.scalars().all()
-    total = len(human_members)
+        total = len(members_result.scalars().all())
+
     if total == 0:
         return
 

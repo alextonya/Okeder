@@ -67,39 +67,51 @@ async def subscribe_push(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.get("/create", response_class=HTMLResponse)
 async def create_page():
-    """Page de création d'event — formulaire HTML simple, zéro JS requis."""
-    # Formulaire HTML pur — action GET vers /pwa/do-create, zéro JavaScript
-    html = (
-        "<!DOCTYPE html><html lang='en'><head>"
-        "<meta charset='UTF-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Okeder</title>"
-        "<style>"
+    """Étape 1 : titre + nom + nombre d'invités."""
+    CSS = (
         "*{box-sizing:border-box;margin:0;padding:0}"
         "body{font-family:-apple-system,sans-serif;background:#0f172a;color:#f1f5f9;"
         "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}"
         ".card{max-width:400px;width:100%}"
         "h1{font-size:26px;font-weight:800;margin-bottom:6px}"
-        ".sub{color:#64748b;font-size:14px;margin-bottom:28px}"
+        ".sub{color:#64748b;font-size:14px;margin-bottom:28px;line-height:1.5}"
         "label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;"
         "color:#64748b;text-transform:uppercase;margin-bottom:8px}"
-        "input{width:100%;padding:14px;border-radius:12px;"
+        "input[type=text]{width:100%;padding:14px;border-radius:12px;"
         "border:1.5px solid rgba(255,255,255,.1);background:#1e293b;"
         "color:#f1f5f9;font-size:16px;outline:none;margin-bottom:20px}"
-        "input:focus{border-color:#6366f1}"
+        "input[type=text]:focus{border-color:#6366f1}"
+        ".chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}"
+        ".chip{padding:10px 16px;border-radius:20px;border:1.5px solid rgba(255,255,255,.1);"
+        "background:#1e293b;color:#f1f5f9;font-size:15px;font-weight:600;cursor:pointer}"
+        "input[type=radio]{display:none}"
+        "input[type=radio]:checked+label.chip{background:#6366f1;border-color:#6366f1}"
         "button{width:100%;padding:16px;border-radius:14px;border:none;"
-        "background:#6366f1;color:white;font-size:16px;font-weight:600;cursor:pointer}"
+        "background:#6366f1;color:white;font-size:16px;font-weight:600;cursor:pointer;margin-top:4px}"
         "button:active{opacity:.8}"
-        "</style></head><body>"
+    )
+    html = (
+        "<!DOCTYPE html><html lang='en'><head>"
+        "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Okeder — Plan an outing</title>"
+        "<style>" + CSS + "</style></head><body>"
         "<div class='card'>"
         "<h1>🎯 Okeder</h1>"
-        "<p class='sub'>Plan a group outing — works on any device, no app needed.</p>"
+        "<p class='sub'>Plan a group outing — no app needed. You'll fill your preferences right after.</p>"
         "<form method='GET' action='/pwa/do-create'>"
         "<label>What are you planning? (optional)</label>"
-        "<input name='title' placeholder='e.g. Friday drinks, Team dinner...'>"
+        "<input type='text' name='title' placeholder='e.g. Friday drinks, Team dinner...'>"
         "<label>Your name</label>"
-        "<input name='name' placeholder='Your first name' required>"
-        "<button type='submit'>Create &amp; get share link &#8594;</button>"
+        "<input type='text' name='name' placeholder='Your first name' required>"
+        "<label>How many people are you inviting? (not counting yourself)</label>"
+        "<div class='chips'>"
+        + "".join(
+            f"<input type='radio' name='guests' id='g{n}' value='{n}' {'checked' if n==3 else ''}>"
+            f"<label class='chip' for='g{n}'>{n}</label>"
+            for n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        ) +
+        "</div>"
+        "<button type='submit'>Continue — fill my preferences &#8594;</button>"
         "</form>"
         "</div></body></html>"
     )
@@ -110,88 +122,148 @@ async def create_page():
 async def pwa_do_create(
     title: str = "Group Outing",
     name: str = "Organiser",
+    guests: int = 3,
     db: AsyncSession = Depends(get_db),
 ):
-    """Crée un event et redirige vers la page de partage."""
+    """
+    Crée l'event avec le bon expected_participants.
+    Redirige vers le Mini App pour que l'organisateur soumette ses préférences.
+    Après soumission, l'organisateur atterrit sur /share/{event_id}.
+    """
     from datetime import datetime, timedelta, timezone
     from fastapi.responses import RedirectResponse
     from app.models.event import Event
     from app.models.group import Group, GroupMembership
     from app.models.member import Member
 
+    # Créer l'organisateur
     organiser = Member(display_name=name)
     db.add(organiser)
     await db.flush()
 
-    group = Group(name=title, initiator_id=organiser.id)
+    # Créer le groupe
+    group = Group(name=title or "Group Outing", initiator_id=organiser.id)
     db.add(group)
     await db.flush()
     db.add(GroupMembership(group_id=group.id, member_id=organiser.id, role="initiator"))
 
+    # expected = organisateur (1) + invités
+    expected = max(2, int(guests) + 1)
+
     deadline = datetime.now(timezone.utc) + timedelta(hours=48)
     event = Event(
         group_id=group.id,
-        title=title,
+        title=title or "Group Outing",
         wizard_mode=False,
         constraint_deadline=deadline,
         created_by=organiser.id,
+        expected_participants=expected,
     )
     db.add(event)
     await db.commit()
     await db.refresh(event)
 
-    return RedirectResponse(url=f"/share/{event.id}")
+    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+
+    # Redirige vers le Mini App pour que l'organisateur soumette ses préférences.
+    # next_url indique où aller après soumission → /share/{event_id}
+    next_url = f"{public_url}/share/{event.id}"
+    mini_app_url = f"{public_url}/mini-app/{event.id}?next={next_url}"
+
+    return RedirectResponse(url=mini_app_url)
 
 
 @router.get("/share/{event_id}", response_class=HTMLResponse)
-async def share_page(event_id: str, request: Request):
-    """Page de partage — affiche les boutons WhatsApp/Telegram/copier."""
-    # Utilise PUBLIC_URL (ngrok) si dispo, sinon l'URL de la requête
+async def share_page(event_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Page de partage — boutons + compteur de réponses."""
+    from app.models.event import Event
+    from app.models.preference import Preference
+
     base = os.environ.get("PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
     join_url = f"{base}/join/{event_id}"
     result_url = f"{base}/result/{event_id}"
+
+    # Compteur de réponses
+    try:
+        ev_result = await db.execute(
+            select(Event).where(Event.id == uuid.UUID(event_id))
+        )
+        event = ev_result.scalar_one_or_none()
+        expected = event.expected_participants if event else 0
+        pref_result = await db.execute(
+            select(Preference).where(
+                Preference.event_id == uuid.UUID(event_id),
+                Preference.submitted_at.isnot(None),
+                Preference.declined == False,  # noqa: E712
+            )
+        )
+        submitted = len(pref_result.scalars().all())
+    except Exception:
+        expected = 0
+        submitted = 0
+
+    counter_text = f"{submitted}/{expected} preferences received" if expected else f"{submitted} preferences received"
+    progress_pct = int(submitted / expected * 100) if expected else 0
 
     import urllib.parse as _ul
     msg = _ul.quote(f"You're invited to plan a group outing! Submit your preferences: {join_url}")
     wa_url  = f"https://wa.me/?text={msg}"
     tg_url  = f"https://t.me/share/url?url={_ul.quote(join_url)}&text={_ul.quote('You are invited to plan a group outing!')}"
 
-    html = (
-        "<!DOCTYPE html><html lang='en'><head>"
-        "<meta charset='UTF-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Okeder — Share</title>"
-        "<style>"
+    css = (
         "*{box-sizing:border-box;margin:0;padding:0}"
         "body{font-family:-apple-system,sans-serif;background:#0f172a;color:#f1f5f9;"
         "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}"
         ".card{max-width:400px;width:100%}"
-        "h1{font-size:22px;font-weight:700;margin-bottom:8px}"
-        ".sub{color:#64748b;font-size:14px;margin-bottom:24px}"
+        "h1{font-size:22px;font-weight:700;margin-bottom:6px}"
+        ".sub{color:#64748b;font-size:14px;margin-bottom:20px;line-height:1.5}"
+        ".counter{background:#1e293b;border-radius:12px;padding:14px;margin-bottom:20px;"
+        "display:flex;align-items:center;justify-content:space-between}"
+        ".counter-text{font-size:14px;color:#94a3b8}"
+        ".counter-num{font-size:22px;font-weight:800;color:#6366f1}"
+        ".progress{height:6px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:8px}"
+        ".progress-fill{height:6px;background:#6366f1;border-radius:3px;transition:width .5s}"
         ".link-box{background:#1e293b;border:1px solid rgba(255,255,255,.08);border-radius:10px;"
-        "padding:12px;font-size:12px;color:#94a3b8;word-break:break-all;margin-bottom:20px}"
-        ".btn{display:flex;align-items:center;gap:12px;width:100%;padding:15px 16px;"
+        "padding:12px 14px;font-size:12px;color:#64748b;word-break:break-all;margin-bottom:16px}"
+        ".btn{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;"
         "border-radius:14px;border:none;font-size:15px;font-weight:600;cursor:pointer;"
         "text-decoration:none;margin-bottom:10px;transition:opacity .15s}"
         ".btn:active{opacity:.8}"
         ".wa{background:#25D366;color:white}"
         ".tg{background:#229ED9;color:white}"
         ".cp{background:#1e293b;color:#f1f5f9;border:1.5px solid rgba(255,255,255,.1)}"
-        ".result{background:#6366f1;color:white;margin-top:16px;justify-content:center}"
+        ".result{background:#6366f1;color:white;justify-content:center;margin-top:8px}"
         ".icon{font-size:20px}"
-        "</style></head><body>"
+    )
+    html = (
+        "<!DOCTYPE html><html lang='en'><head>"
+        "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<meta http-equiv='refresh' content='15'>"
+        "<title>Okeder — Share</title>"
+        "<style>" + css + "</style></head><body>"
         "<div class='card'>"
-        "<h1>✅ Event created!</h1>"
-        "<p class='sub'>Share this link with your group — they can submit preferences on any device.</p>"
+        "<h1>✅ Your preferences saved!</h1>"
+        "<p class='sub'>Now share this link with the people you're inviting. They can respond on any device — no app needed.</p>"
+
+        # Compteur
+        "<div class='counter'>"
+        f"<div><div class='counter-text'>Responses received</div>"
+        f"<div class='progress'><div class='progress-fill' style='width:{progress_pct}%'></div></div></div>"
+        f"<div class='counter-num'>{submitted}/{expected}</div>"
+        "</div>"
+
+        # Lien
         f"<div class='link-box'>{join_url}</div>"
-        f"<a class='btn wa' href='{wa_url}' target='_blank'>"
-        "<span class='icon'>📱</span> Share via WhatsApp</a>"
-        f"<a class='btn tg' href='{tg_url}' target='_blank'>"
-        "<span class='icon'>✈️</span> Share via Telegram</a>"
+
+        # Boutons de partage
+        f"<a class='btn wa' href='{wa_url}' target='_blank'><span class='icon'>📱</span> Share via WhatsApp</a>"
+        f"<a class='btn tg' href='{tg_url}' target='_blank'><span class='icon'>✈️</span> Share via Telegram</a>"
         "<button class='btn cp' onclick=\"navigator.clipboard.writeText('" + join_url + "');"
-        "this.textContent='✅ Copied!';setTimeout(()=>this.textContent='📋 Copy link',2000)\">"
+        "this.innerHTML='<span class=\\'icon\\'>✅</span> Copied!';setTimeout(()=>this.innerHTML='<span class=\\'icon\\'>📋</span> Copy link',2000)\">"
         "<span class='icon'>📋</span> Copy link</button>"
+
         f"<a class='btn result' href='{result_url}'>See proposal when ready →</a>"
+        "<p style='font-size:12px;color:#475569;margin-top:12px;text-align:center'>This page refreshes automatically every 15s</p>"
         "</div></body></html>"
     )
     return HTMLResponse(content=html)
