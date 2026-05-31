@@ -55,7 +55,7 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
                 "telegram_chat_id": chat.id,
                 "title": _extract_title(msg_text),
                 "location": _extract_location(msg_text),
-                "wizard_mode": True,
+                "wizard_mode": False,  # Auto par défaut
             },
         )
 
