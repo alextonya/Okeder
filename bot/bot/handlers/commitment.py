@@ -71,28 +71,9 @@ async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAU
     else:
         resolved_proposal_id = proposal_id
 
-    # 3. DM récapitulatif (uniquement pour soft et confirmed)
-    if level in ("soft", "confirmed") and resolved_event_id:
+    # 3. DM récapitulatif pour tous les niveaux (soft, confirmed, hard)
+    if resolved_event_id:
         await _send_summary_dm(context, user.id, resolved_event_id, resolved_proposal_id, level)
-    elif level == "hard":
-        # Lock In → deeplink vers PWA pour paiement
-        public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
-        mini_app_url = f"{public_url}/mini-app/{event_id}"
-        try:
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    "💳 Complete payment",
-                    web_app=WebAppInfo(url=mini_app_url),
-                )
-            ]])
-            await context.bot.send_message(
-                chat_id=user.id,
-                text="🔒 <b>You're locked in!</b>\n\nComplete your payment to confirm your spot.",
-                parse_mode="HTML",
-                reply_markup=keyboard,
-            )
-        except Exception:
-            pass  # DM échoue si l'utilisateur n'a jamais démarré le bot
 
 
 async def _send_summary_dm(
