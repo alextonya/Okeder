@@ -202,6 +202,27 @@ async def _search_venue(
         log.warning(f"Foursquare search failed: {e}")
 
     # ─── 1b. OpenStreetMap Overpass (fallback gratuit, sans clé) ─────────────
+    # Fonctionne avec coordonnées GPS OU avec geocodage du texte de zone
+    if not (midpoint_lat and midpoint_lng) and location:
+        # Geocoder le texte de zone via Nominatim pour obtenir des coordonnées
+        try:
+            import urllib.request as _ur
+            import urllib.parse as _up
+            import json as _json
+            q = _up.urlencode({"q": location, "format": "json", "limit": "1"})
+            req = _ur.Request(
+                f"https://nominatim.openstreetmap.org/search?{q}",
+                headers={"User-Agent": "Okeder/1.0"}
+            )
+            with _ur.urlopen(req, timeout=5) as r:
+                results = _json.loads(r.read().decode())
+            if results:
+                midpoint_lat = float(results[0]["lat"])
+                midpoint_lng = float(results[0]["lon"])
+                log.info(f"Geocoded '{location}' → {midpoint_lat:.4f},{midpoint_lng:.4f}")
+        except Exception as e:
+            log.warning(f"Geocoding failed for '{location}': {e}")
+
     if midpoint_lat and midpoint_lng:
         try:
             from app.services.overpass_service import search_venues as osm_search, pick_best_venue as osm_pick

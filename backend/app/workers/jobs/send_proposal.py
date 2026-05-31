@@ -107,6 +107,38 @@ def _format_proposal_card(proposal) -> str:
     lines.append("")
     lines.append("─────────────────")
 
+    # ─── Vibe en exergue ──────────────────────────────────────────────────────
+    VIBE_DISPLAY = {
+        "casual":       "😌 Casual & Relaxed",
+        "professional": "💼 Professional",
+        "festive":      "🎉 Festive",
+        "cosy":         "🍵 Cosy & Intimate",
+        "outdoor":      "🌿 Outdoor",
+        "cultural":     "🎨 Cultural",
+    }
+    ACTIVITY_DISPLAY = {
+        "dinner":   "🍽 Dinner",
+        "drinks":   "🍸 Drinks",
+        "brunch":   "☕ Brunch",
+        "lunch":    "🥗 Lunch",
+        "cinema":   "🎬 Cinema",
+        "concert":  "🎵 Concert",
+        "activity": "🎮 Activity",
+    }
+
+    vibe     = lj.get("vibe_proposed") or lj.get("vibe") or ""
+    activity = lj.get("activity") or ""
+    pct_v    = float(proposal.pct_prefs_satisfied or 0) * 100
+    vibe_lbl = VIBE_DISPLAY.get(vibe, vibe.capitalize() if vibe else "")
+    act_lbl  = ACTIVITY_DISPLAY.get(activity, activity.capitalize() if activity else "")
+
+    if vibe_lbl:
+        lines.append("<b>" + vibe_lbl + "</b>  " + act_lbl)
+        agree_icon = "✅" if pct_v >= 70 else "⚠️"
+        lines.append(agree_icon + " " + str(int(pct_v)) + "% of the group agree on this vibe")
+
+    lines.append("")
+
     # ─── Légitimité (L4) ──────────────────────────────────────────────────────
     if proposal.pct_budget_satisfied is not None:
         pct = float(proposal.pct_budget_satisfied) * 100
@@ -117,17 +149,6 @@ def _format_proposal_card(proposal) -> str:
         pct = float(proposal.pct_time_satisfied) * 100
         icon = "✅" if pct >= 70 else "⚠️"
         lines.append(icon + " Timing: " + str(int(pct)) + "% satisfied")
-
-    # Vibe + Activity explicites (#4)
-    vibe     = lj.get("vibe_proposed") or lj.get("vibe") or ""
-    activity = lj.get("activity") or ""
-    if vibe:
-        pct_v = float(proposal.pct_prefs_satisfied or 0) * 100
-        icon = "✅" if pct_v >= 70 else "⚠️"
-        label = vibe.capitalize()
-        if activity and activity != vibe:
-            label += " + " + activity.capitalize()
-        lines.append(icon + " Vibe & Activity (" + label + "): " + str(int(pct_v)) + "% match")
 
     # ─── Distances anonymisées — min/max/avg (#3) ─────────────────────────────
     distances = lj.get("distances", [])
