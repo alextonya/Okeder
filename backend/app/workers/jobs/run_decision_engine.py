@@ -89,8 +89,9 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
                     })
 
         # Enrichir legitimacy_json avec distances et vibe
-        spec.legitimacy_json["venue_lat"] = venue_lat
-        spec.legitimacy_json["venue_lng"] = venue_lng
+        # Stocker coords pour les calculs de distance (pas pour Maps URL)
+        spec.legitimacy_json["venue_lat"] = venue_data.get("lat") or venue_lat
+        spec.legitimacy_json["venue_lng"] = venue_data.get("lng") or venue_lng
         spec.legitimacy_json["distances"] = distances_info
         spec.legitimacy_json["vibe_proposed"] = spec.vibe
 
@@ -107,14 +108,16 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         if spec.datetime_hint and spec.datetime_hint != "TBD":
             title = f"{title} — {spec.datetime_hint}"
 
-        # Google Maps URL avec coordonnées précises si disponibles
+        # Google Maps URL — toujours par NOM+ADRESSE pour pointer sur le bon établissement
+        import urllib.parse as _ulp
         gmaps_url = ""
-        if venue_lat and venue_lng:
-            gmaps_url = f"https://maps.google.com/?q={venue_lat},{venue_lng}&z=16"
-        elif venue_data.get("venue_name") and venue_data.get("venue_address"):
-            import urllib.parse
-            q = urllib.parse.quote(f"{venue_data['venue_name']} {venue_data['venue_address']}")
-            gmaps_url = f"https://maps.google.com/?q={q}"
+        vname = venue_data.get("venue_name", "")
+        vaddr = venue_data.get("venue_address", "")
+        if vname and vaddr:
+            q = _ulp.quote(vname + ", " + vaddr)
+            gmaps_url = "https://www.google.com/maps/search/?api=1&query=" + q
+        elif vname:
+            gmaps_url = "https://www.google.com/maps/search/?api=1&query=" + _ulp.quote(vname)
 
         proposal = Proposal(
             event_id=uuid.UUID(event_id),
@@ -241,21 +244,31 @@ async def _search_venue(
                 radius_km=radius_m / 1000,
             )
             if venue:
-                title = venue["name"]
-                if venue.get("category"):
-                    title = f"{venue['name']} — {venue['category']}"
-                return {
-                    "title":         title,
-                    "venue_name":    venue["name"],
-                    "venue_address": venue.get("address", ""),
-                    "date_time":     None,
-                    "price_cents":   None,
-                    "url":           venue.get("url", ""),
-                    "lat":           venue.get("lat"),
-                    "lng":           venue.get("lng"),
-                }
+                name    = venue.get("name", "").strip()
+                address = venue.get("address", "").strip()
+                v_lat   = venue.get("lat")
+                v_lng   = venue.get("lng")
+
+                log.info("Selected venue: '%s' | '%s' | lat=%s lng=%s", name, address, v_lat, v_lng)
+
+                if not name:
+                    log.warning("Venue has no name — skipping")
+                else:
+                    category = venue.get("category", "")
+                    title = name + (" — " + category if category else "")
+                    return {
+                        "title":         title,
+                        "venue_name":    name,
+                        "venue_address": address,
+                        "date_time":     None,
+                        "price_cents":   None,
+                        "lat":           v_lat,
+                        "lng":           v_lng,
+                    }
+            else:
+                log.warning("Overpass returned %d venues but scoring eliminated all", len(venues))
         except Exception as e:
-            log.warning(f"Overpass search failed: {e}")
+            log.warning("Overpass search failed: %s", e)
 
     # ─── 2. Eventbrite fallback (concerts, shows ticketés) ────────────────────
     try:

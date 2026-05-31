@@ -102,20 +102,16 @@ def _format_proposal_card(proposal) -> str:  # noqa: C901
     if proposal.venue_address:
         lines.append("🗺 " + proposal.venue_address)
 
-    # Lien Google Maps vers le lieu physique exact
-    v_lat = lj.get("venue_lat")
-    v_lng = lj.get("venue_lng")
-    if v_lat and v_lng:
-        # Coordonnées GPS → pointe directement sur le bâtiment
-        gmaps = "https://maps.google.com/?q=" + str(v_lat) + "," + str(v_lng) + "&z=17"
+    # Lien Google Maps — recherche par NOM (trouve le vrai établissement)
+    gmaps = ""
+    if proposal.external_url and "maps" in proposal.external_url:
+        # URL déjà construite par le moteur (recherche par nom+adresse)
+        gmaps = proposal.external_url
     elif proposal.venue_name and proposal.venue_address:
-        # Nom + adresse → recherche Google Maps
         q = _ul.quote(proposal.venue_name + ", " + proposal.venue_address)
-        gmaps = "https://maps.google.com/?q=" + q
+        gmaps = "https://www.google.com/maps/search/?api=1&query=" + q
     elif proposal.venue_name:
-        gmaps = "https://maps.google.com/?q=" + _ul.quote(proposal.venue_name)
-    else:
-        gmaps = ""
+        gmaps = "https://www.google.com/maps/search/?api=1&query=" + _ul.quote(proposal.venue_name)
 
     if gmaps:
         lines.append('<a href="' + gmaps + '">📌 Open in Google Maps</a>')
