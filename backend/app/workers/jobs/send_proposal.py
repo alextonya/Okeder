@@ -60,11 +60,46 @@ def _format_proposal_card(proposal) -> str:
     elif proposal.external_url:
         lines.append('<a href="' + proposal.external_url + '">🔗 More info</a>')
 
-    # ─── Date / moment ────────────────────────────────────────────────────────
+    # ─── Date avec lien calendrier ────────────────────────────────────────────
+    import urllib.parse as _ul
+    cal_url = ""
     if proposal.date_time:
-        lines.append("🕐 " + proposal.date_time.strftime("%A %d %b, %H:%M"))
+        dt = proposal.date_time
+        date_label = dt.strftime("%A %d %B at %H:%M")
+        cal_start = dt.strftime("%Y%m%dT%H%M%S")
+        from datetime import timedelta as _td
+        cal_end = (dt + _td(hours=2)).strftime("%Y%m%dT%H%M%S")
+        venue_loc = _ul.quote((proposal.venue_name or "") + " " + (proposal.venue_address or ""))
+        cal_url = (
+            "https://calendar.google.com/calendar/render?action=TEMPLATE"
+            "&text=" + _ul.quote("Okeder: " + (proposal.venue_name or "Group Outing"))
+            + "&dates=" + cal_start + "/" + cal_end
+            + "&location=" + venue_loc
+        )
     elif lj.get("datetime_hint") and lj["datetime_hint"] not in ("TBD", ""):
-        lines.append("📅 " + lj["datetime_hint"])
+        date_label = lj["datetime_hint"]
+        # Construire lien calendrier depuis la date ISO si disponible
+        date_iso = lj.get("proposed_date_iso")
+        hour = lj.get("proposed_hour", 19)
+        if date_iso:
+            from datetime import date as _date, timedelta as _td
+            d = _date.fromisoformat(date_iso)
+            cal_start = d.strftime("%Y%m%d") + "T" + f"{hour:02d}0000"
+            cal_end   = d.strftime("%Y%m%d") + "T" + f"{min(hour+2, 23):02d}0000"
+            venue_loc = _ul.quote((proposal.venue_name or "") + " " + (proposal.venue_address or ""))
+            cal_url = (
+                "https://calendar.google.com/calendar/render?action=TEMPLATE"
+                "&text=" + _ul.quote("Okeder: " + (proposal.venue_name or "Group Outing"))
+                + "&dates=" + cal_start + "/" + cal_end
+                + "&location=" + venue_loc
+            )
+    else:
+        date_label = ""
+
+    if date_label:
+        lines.append("📅 " + date_label)
+    if cal_url:
+        lines.append('<a href="' + cal_url + '">📆 Add to Google Calendar</a>')
 
     if proposal.price_per_person and proposal.price_per_person > 0:
         lines.append("💶 ~€" + str(int(proposal.price_per_person / 100)) + "/person")
@@ -83,26 +118,40 @@ def _format_proposal_card(proposal) -> str:
         icon = "✅" if pct >= 70 else "⚠️"
         lines.append(icon + " Timing: " + str(int(pct)) + "% satisfied")
 
-    if proposal.pct_prefs_satisfied is not None:
-        pct = float(proposal.pct_prefs_satisfied) * 100
-        icon = "✅" if pct >= 70 else "⚠️"
-        lines.append(icon + " Preferences: " + str(int(pct)) + "% match")
-
-    # Vibe compatibility (#4)
-    vibe = lj.get("vibe_proposed") or lj.get("vibe") or ""
+    # Vibe + Activity explicites (#4)
+    vibe     = lj.get("vibe_proposed") or lj.get("vibe") or ""
+    activity = lj.get("activity") or ""
     if vibe:
-        lines.append("✅ Vibe: " + vibe.capitalize() + " ✓")
+        pct_v = float(proposal.pct_prefs_satisfied or 0) * 100
+        icon = "✅" if pct_v >= 70 else "⚠️"
+        label = vibe.capitalize()
+        if activity and activity != vibe:
+            label += " + " + activity.capitalize()
+        lines.append(icon + " Vibe & Activity (" + label + "): " + str(int(pct_v)) + "% match")
 
-    # ─── Distances (#3) ───────────────────────────────────────────────────────
+    # ─── Distances anonymisées — min/max/avg (#3) ─────────────────────────────
     distances = lj.get("distances", [])
     if distances:
-        avg_km = sum(d["dist_km"] for d in distances) / len(distances)
-        lines.append("🚶 Avg distance: " + str(round(avg_km, 1)) + " km")
-        over = [d for d in distances if d.get("over_max") and d.get("max_min", 999) != 999]
-        for d in over:
+        times = [d["est_min"] for d in distances]
+        dists = [d["dist_km"] for d in distances]
+        avg_t = int(sum(times) / len(times))
+        avg_d = round(sum(dists) / len(dists), 1)
+        min_t, max_t = min(times), max(times)
+
+        if min_t == max_t:
+            lines.append("🚶 Travel to venue: ~" + str(avg_t) + " min (" + str(avg_d) + " km avg)")
+        else:
             lines.append(
-                "⚠️ " + d["name"] + ": ~" + str(d["est_min"]) + " min"
-                + " (max stated: " + str(d["max_min"]) + " min)"
+                "🚶 Travel to venue: " + str(min_t) + "–" + str(max_t) + " min"
+                + " (avg " + str(avg_t) + " min, " + str(avg_d) + " km)"
+            )
+
+        over = [d for d in distances if d.get("over_max") and d.get("max_min", 999) != 999]
+        if over:
+            n = len(over)
+            lines.append(
+                "⚠️ " + str(n) + " participant" + ("s" if n > 1 else "")
+                + " exceed" + ("" if n > 1 else "s") + " their stated travel maximum"
             )
 
     # ─── Compromis ────────────────────────────────────────────────────────────

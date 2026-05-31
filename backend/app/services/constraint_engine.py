@@ -250,19 +250,20 @@ def run_engine(preferences: list[dict[str, Any]]) -> ProposalSpec:
         common_end = min(w[1] for w in windows)
 
         if common_start <= common_end:
-            # Fenêtre commune trouvée → point médian
             mid_date = common_start + (common_end - common_start) // 2
             spec.best_day = mid_date.strftime("%A").lower()
-            date_str = mid_date.strftime("%d %b")
-            spec.datetime_hint = f"{date_str} {time_str}".strip()
         else:
-            # Pas d'overlap → utiliser la date médiane (compromis)
             spec.compromise_flagged = True
             spec.compromise_explanation = "No common date window — using median date"
             all_dates = sorted(d for d, _ in dates_with_margin)
-            mid = all_dates[len(all_dates) // 2]
-            date_str = mid.strftime("%d %b")
-            spec.datetime_hint = f"~{date_str} {time_str}".strip()
+            mid_date = all_dates[len(all_dates) // 2]
+
+        # Date lisible + ISO pour le lien calendrier
+        hour = {"lunch": 12, "after_work": 18, "evening": 19, "weekend": 14}.get(spec.best_time, 19)
+        spec.legitimacy_json["proposed_date_iso"] = mid_date.isoformat()
+        spec.legitimacy_json["proposed_hour"] = hour
+        date_str = mid_date.strftime("%A %d %B")
+        spec.datetime_hint = f"{date_str}{', ' + time_str if time_str else ''}"
     elif time_str:
         spec.datetime_hint = time_str.capitalize()
     else:
