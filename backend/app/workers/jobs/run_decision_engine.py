@@ -213,7 +213,25 @@ async def _search_venue(
                 activity=activity,
                 vibe=vibe,
             )
-            venue = osm_pick(venues)
+            # Extraire les coordonnées des membres pour le scoring
+            member_coords = [
+                (float(p["raw_answers"]["departure_lat"]), float(p["raw_answers"]["departure_lng"]))
+                for p in preferences
+                if p.get("raw_answers", {}).get("departure_lat") and p.get("raw_answers", {}).get("departure_lng")
+            ]
+            # Collecter les hard constraints de tous les membres
+            all_hard = []
+            for p in preferences:
+                all_hard.extend(p.get("hard_constraints") or [])
+
+            venue = osm_pick(
+                venues,
+                member_coords=member_coords,
+                activity=activity,
+                vibe=vibe,
+                hard_constraints=all_hard,
+                radius_km=radius_m / 1000,
+            )
             if venue:
                 title = venue["name"]
                 if venue.get("category"):
