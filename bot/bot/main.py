@@ -21,16 +21,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler de debug — log tous les messages reçus."""
+    logger.info(f"[DEBUG] Update reçu: {update}")
+
+
 def build_app() -> Application:
     app = Application.builder().token(settings.telegram_bot_token).build()
+
+    # Handler de debug — à supprimer après les tests
+    from telegram.ext import TypeHandler
+    app.add_handler(TypeHandler(Update, debug_all), group=-1)
 
     # ConversationHandler DM — doit être enregistré avant les handlers génériques
     app.add_handler(build_constraint_conversation())
 
-    # Mention @Okeder dans un groupe
+    # Mention @OkederBot dans un groupe — insensible à la casse
     app.add_handler(
         MessageHandler(
-            filters.Entity("mention") & filters.ChatType.GROUPS,
+            filters.ChatType.GROUPS & filters.TEXT,
             handle_group_mention,
         )
     )

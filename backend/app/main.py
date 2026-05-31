@@ -12,6 +12,7 @@ from app.routers import (
     events,
     groups,
     internal,
+    miniapp,
     preferences,
     proposals,
     webhooks,
@@ -38,8 +39,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.pwa_base_url],
-    allow_credentials=True,
+    allow_origins=["*"],  # dev — restreindre en prod
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,6 +56,7 @@ app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(wizard.router, prefix="/v1/wizard", tags=["wizard"])
 app.include_router(ws.router, prefix="/ws", tags=["websocket"])
 app.include_router(internal.router, prefix="/v1/internal/telegram", tags=["internal"])
+app.include_router(miniapp.router, tags=["miniapp"])
 
 
 @app.get("/health")
