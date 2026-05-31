@@ -228,8 +228,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
     // Sélections courantes
     const selected = {{ vibe: new Set(), activity: new Set(), times: new Set() }};
-    singleSelected.margin = '5';  // défaut ± 5 jours
-    const singleSelected = {{ departure: null, travel: null }};
+    const singleSelected = {{ departure: null, travel: null, margin: '5' }};
 
     // ─── Préremplissage au chargement ────────────────────────────────────────
     window.addEventListener('load', async () => {{

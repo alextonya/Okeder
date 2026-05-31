@@ -5,8 +5,6 @@ Inscription : https://foursquare.com/developer
 """
 import logging
 
-import httpx
-
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -45,8 +43,10 @@ async def search_venues(
     Retourne une liste de dicts avec : name, address, rating, category, fsq_id, url.
     """
     if not settings.foursquare_api_key:
-        logger.warning("FOURSQUARE_API_KEY non définie — recherche venue désactivée")
+        logger.warning("FOURSQUARE_API_KEY non definie — recherche venue desactivee")
         return []
+
+    logger.info(f"Foursquare search: query='{query}' near='{near}' radius={radius_meters}m")
 
     # Construire les catégories à partir de la vibe et de l'activité
     cats: set[int] = set()
@@ -67,17 +67,26 @@ async def search_venues(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(
-                f"{FSQ_BASE}/places/search",
+        import asyncio
+        import json as _json
+        import urllib.parse
+        import urllib.request
+
+        query_string = urllib.parse.urlencode(params)
+        url = f"{FSQ_BASE}/places/search?{query_string}"
+
+        def _fetch():
+            req = urllib.request.Request(
+                url,
                 headers={
                     "Authorization": settings.foursquare_api_key,
                     "Accept": "application/json",
                 },
-                params=params,
             )
-            resp.raise_for_status()
-            data = resp.json()
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return _json.loads(r.read().decode())
+
+        data = await asyncio.to_thread(_fetch)
 
         results = []
         for place in data.get("results", []):
@@ -103,7 +112,7 @@ async def search_venues(
         return results
 
     except Exception as e:
-        logger.warning(f"Foursquare search failed: {e}")
+        logger.warning(f"Foursquare search failed ({type(e).__name__}): {e}")
         return []
 
 

@@ -53,9 +53,13 @@ async def _send_webapp_button(
         )
     ]])
 
-    await update.message.reply_text(
-        "👋 Tap below to submit your preferences — takes 30 seconds!",
+    # Retry avec context.bot (évite le bug TLS anyio Python 3.14)
+    from bot.telegram_utils import send_message as _send
+    await _send(
+        chat_id=update.effective_chat.id,
+        text="👋 Tap below to submit your preferences — takes 30 seconds!",
         reply_markup=keyboard,
+        bot=context.bot,
     )
     return ConversationHandler.END
 
