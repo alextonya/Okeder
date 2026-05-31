@@ -65,6 +65,195 @@ async def subscribe_push(request: Request, db: AsyncSession = Depends(get_db)):
 
 # ─── Page d'invitation ────────────────────────────────────────────────────────
 
+@router.get("/create", response_class=HTMLResponse)
+async def create_page():
+    """Page de création d'event — sans Telegram."""
+    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Okeder — Plan an outing</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:#0f172a;color:#f1f5f9;min-height:100vh;padding:24px;
+         display:flex;align-items:center;justify-content:center}
+    .card{max-width:420px;width:100%}
+    h1{font-size:28px;font-weight:800;margin-bottom:6px}
+    .sub{color:#64748b;font-size:14px;margin-bottom:32px}
+    label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;
+          color:#64748b;text-transform:uppercase;margin-bottom:8px}
+    input{width:100%;padding:14px;border-radius:12px;border:1.5px solid rgba(255,255,255,.1);
+          background:#1e293b;color:#f1f5f9;font-size:16px;outline:none;margin-bottom:24px}
+    input:focus{border-color:#6366f1}
+    .btn{width:100%;padding:16px;border-radius:14px;border:none;
+         background:#6366f1;color:white;font-size:16px;font-weight:600;
+         cursor:pointer;transition:opacity .15s}
+    .btn:active{opacity:.8}
+    .btn:disabled{opacity:.4}
+    /* Share section */
+    #share-section{display:none;margin-top:28px}
+    .share-title{font-size:15px;font-weight:600;margin-bottom:16px;color:#94a3b8}
+    .share-row{display:flex;flex-direction:column;gap:10px}
+    .share-btn{display:flex;align-items:center;gap:12px;padding:14px 16px;
+               border-radius:14px;border:none;cursor:pointer;font-size:15px;
+               font-weight:600;text-decoration:none;transition:opacity .15s;width:100%}
+    .share-btn:active{opacity:.8}
+    .wa{background:#25D366;color:white}
+    .tg{background:#229ED9;color:white}
+    .copy{background:#1e293b;color:#f1f5f9;border:1.5px solid rgba(255,255,255,.1)}
+    .share-btn .icon{font-size:22px}
+    .copied{display:none;color:#34d399;font-size:13px;text-align:center;margin-top:8px}
+    .form-link{display:block;background:#1e293b;border:1px solid rgba(255,255,255,.08);
+               border-radius:10px;padding:10px 14px;font-size:12px;color:#64748b;
+               word-break:break-all;margin-bottom:12px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🎯 Okeder</h1>
+  <p class="sub">Plan a group outing — works on any device, no app needed.</p>
+
+  <div id="form-section">
+    <label>What are you planning? (optional)</label>
+    <input type="text" id="event-title" placeholder="e.g. Friday drinks, Team dinner...">
+
+    <label>Your name</label>
+    <input type="text" id="organiser-name" placeholder="Your first name">
+
+    <button class="btn" id="create-btn" onclick="createEvent()">
+      Create &amp; get share link →
+    </button>
+  </div>
+
+  <div id="share-section">
+    <p class="share-title">Share this link with your group :</p>
+    <div class="form-link" id="join-link-display"></div>
+    <div class="share-row">
+      <a class="share-btn wa" id="wa-btn" href="#" target="_blank">
+        <span class="icon">📱</span> Share via WhatsApp
+      </a>
+      <a class="share-btn tg" id="tg-btn" href="#" target="_blank">
+        <span class="icon">✈️</span> Share via Telegram
+      </a>
+      <button class="share-btn copy" onclick="copyLink()">
+        <span class="icon">📋</span> Copy link
+      </button>
+    </div>
+    <div class="copied" id="copied-msg">✅ Link copied!</div>
+    <button class="btn" style="margin-top:20px;background:#1e293b;border:1.5px solid rgba(255,255,255,.1)"
+            onclick="goToResult()">
+      See proposal when ready →
+    </button>
+  </div>
+</div>
+
+<script>
+  const BASE = '""" + public_url + """';
+  let currentEventId = null;
+
+  async function createEvent() {
+    const btn = document.getElementById('create-btn');
+    const title = document.getElementById('event-title').value.trim();
+    const name  = document.getElementById('organiser-name').value.trim();
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+      const resp = await fetch(BASE + '/pwa/create-event', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({title: title || 'Group Outing', organiser_name: name || 'Organiser'}),
+      });
+      const data = await resp.json();
+      currentEventId = data.event_id;
+
+      const joinUrl = BASE + '/join/' + currentEventId;
+      const msg = encodeURIComponent(
+        (name || 'Someone') + ' is planning a group outing 🎉\\nSubmit your preferences here:\\n' + joinUrl
+      );
+
+      document.getElementById('join-link-display').textContent = joinUrl;
+      document.getElementById('wa-btn').href = 'https://wa.me/?text=' + msg;
+      document.getElementById('tg-btn').href = 'https://t.me/share/url?url=' + encodeURIComponent(joinUrl) + '&text=' + encodeURIComponent((name || 'Someone') + ' is planning a group outing 🎉');
+
+      document.getElementById('form-section').style.display = 'none';
+      document.getElementById('share-section').style.display = 'block';
+
+      // Native share si disponible (mobile)
+      if (navigator.share) {
+        navigator.share({
+          title: 'Okeder — Group Outing',
+          text: (name || 'Someone') + ' is planning a group outing!',
+          url: joinUrl,
+        }).catch(() => {});
+      }
+    } catch(e) {
+      btn.disabled = false;
+      btn.textContent = 'Create & get share link →';
+      alert('Error creating event. Please try again.');
+    }
+  }
+
+  function copyLink() {
+    const link = BASE + '/join/' + currentEventId;
+    navigator.clipboard.writeText(link).then(() => {
+      document.getElementById('copied-msg').style.display = 'block';
+      setTimeout(() => document.getElementById('copied-msg').style.display = 'none', 2000);
+    });
+  }
+
+  function goToResult() {
+    window.location.href = BASE + '/result/' + currentEventId;
+  }
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+@router.post("/pwa/create-event")
+async def pwa_create_event(request: Request, db: AsyncSession = Depends(get_db)):
+    """Crée un event depuis la PWA (sans Telegram)."""
+    from datetime import datetime, timedelta, timezone
+    from app.models.event import Event
+    from app.models.group import Group, GroupMembership
+    from app.models.member import Member
+
+    body = await request.json()
+    title = body.get("title", "Group Outing")
+    organiser_name = body.get("organiser_name", "Organiser")
+
+    # Créer un membre organisateur
+    organiser = Member(display_name=organiser_name)
+    db.add(organiser)
+    await db.flush()
+
+    # Créer un groupe virtuel
+    group = Group(name=title, initiator_id=organiser.id)
+    db.add(group)
+    await db.flush()
+
+    db.add(GroupMembership(group_id=group.id, member_id=organiser.id, role="initiator"))
+
+    # Créer l'event en mode auto
+    deadline = datetime.now(timezone.utc) + timedelta(hours=48)
+    event = Event(
+        group_id=group.id,
+        title=title,
+        wizard_mode=False,
+        constraint_deadline=deadline,
+        created_by=organiser.id,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+
+    return {"event_id": str(event.id), "join_url": f"/join/{event.id}"}
+
+
 @router.get("/join/{event_id}", response_class=HTMLResponse)
 async def join_page(event_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.event import Event
