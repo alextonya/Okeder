@@ -52,6 +52,45 @@ async def send_telegram_message(
                 logger.warning(f"Telegram sendMessage failed after 5 attempts: {e}")
 
 
+async def send_whatsapp_message(phone: str, text: str) -> None:
+    """
+    Envoie un message WhatsApp free-text via Cloud API.
+    Nécessite WA_ACCESS_TOKEN et WA_PHONE_NUMBER_ID dans les settings.
+    Le numéro doit avoir initié une conversation avec le bot dans les 24h
+    (règle WhatsApp) — sinon utiliser un template approuvé.
+    """
+    if not settings.whatsapp_access_token or not settings.whatsapp_phone_number_id:
+        logger.info("WhatsApp non configuré — message skipped pour %s", phone)
+        return
+
+    # Normaliser le numéro (supprimer espaces et +)
+    phone_clean = phone.replace(" ", "").replace("+", "").replace("-", "")
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_clean,
+        "type": "text",
+        "text": {"body": text},
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{settings.whatsapp_api_url}/{settings.whatsapp_phone_number_id}/messages",
+                headers={
+                    "Authorization": f"Bearer {settings.whatsapp_access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                logger.info("WhatsApp sent to %s", phone)
+            else:
+                logger.warning("WhatsApp failed %s: %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.warning("WhatsApp error: %s", e)
+
+
 async def send_whatsapp_template(phone: str, template_name: str, params: list[str]) -> None:
     """Envoie un message template WhatsApp (notification uniquement)."""
     payload = {

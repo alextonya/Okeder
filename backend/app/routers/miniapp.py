@@ -216,9 +216,10 @@ MINI_APP_HTML = """<!DOCTYPE html>
       <input type="text" id="display-name" placeholder="Prénom ou surnom">
     </div>
     <div class="section">
-      <span class="section-label">Email <span style="font-weight:400;text-transform:none">(pour recevoir la proposal)</span></span>
-      <input type="email" id="notify-email" placeholder="ton@email.com" autocomplete="email">
-      <p class="hint" style="margin-top:6px">Uniquement pour t'envoyer la proposition.</p>
+      <span class="section-label">Email ou WhatsApp <span style="font-weight:400;text-transform:none">(pour recevoir la proposal)</span></span>
+      <input type="email" id="notify-email" placeholder="ton@email.com" autocomplete="email" style="margin-bottom:10px">
+      <input type="tel" id="notify-phone" placeholder="+44 7xxx xxx xxx (WhatsApp)" autocomplete="tel">
+      <p class="hint" style="margin-top:6px">Pour t'envoyer la proposition quand elle est prête. Optionnel.</p>
     </div>
 
     <button class="submit-btn" id="submit-btn" onclick="submitPrefs()">
@@ -508,6 +509,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
         init_data:        tg.initData || "",
         display_name:     name,
         notify_email:     document.getElementById('notify-email').value.trim() || null,
+        notify_phone:     document.getElementById('notify-phone').value.trim() || null,
         next_url:         NEXT_URL || null,
         event_id:         EVENT_ID,
         // Ambiance + activité
@@ -617,6 +619,7 @@ async def submit_mini_app_preferences(
     event_id_str = body.get("event_id", "")
     display_name = body.get("display_name", "").strip() or "Anonymous"
     notify_email = body.get("notify_email", "").strip() or None
+    notify_phone = body.get("notify_phone", "").strip() or None
 
     # Identification via Telegram initData ou fallback nom
     user_data = _validate_telegram_init_data(init_data, settings.telegram_bot_token) if init_data else None
@@ -635,8 +638,16 @@ async def submit_mini_app_preferences(
                 member.display_name = display_name
             if notify_email:
                 member.email = notify_email
+            if notify_phone:
+                member.phone = notify_phone
+                member.whatsapp_notify = True
     else:
-        member = Member(display_name=display_name, email=notify_email)
+        member = Member(
+            display_name=display_name,
+            email=notify_email,
+            phone=notify_phone,
+            whatsapp_notify=bool(notify_phone),
+        )
         db.add(member)
         await db.flush()
 

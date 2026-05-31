@@ -174,39 +174,8 @@ async def _search_venue(
 
     radius_m = max(500, radius_km * 1000)
 
-    # ─── 1. Foursquare (restaurants, bars, lieux) — si clé valide ────────────
-    try:
-        from app.services.foursquare_service import search_venues as fsq_search, pick_best_venue as fsq_pick
-        from app.config import settings as _settings
-
-        if _settings.foursquare_api_key and _settings.foursquare_api_key.startswith("fsq"):
-            venues = await fsq_search(
-                query=activity or vibe,
-                near=location,
-                radius_meters=radius_m,
-                vibe=vibe,
-                activity=activity,
-                ll=f"{midpoint_lat},{midpoint_lng}" if midpoint_lat and midpoint_lng else None,
-            )
-            venue = fsq_pick(venues, budget_max_cents)
-            if venue:
-                title = venue["name"]
-                if venue.get("category"):
-                    title = f"{venue['name']} — {venue['category']}"
-                return {
-                    "title":         title,
-                    "venue_name":    venue["name"],
-                    "venue_address": venue.get("address", ""),
-                    "date_time":     None,
-                    "price_cents":   None,
-                    "url":           venue.get("url", ""),
-                }
-        else:
-            log.info("Foursquare key not valid (needs fsq3...) — using Overpass fallback")
-    except Exception as e:
-        log.warning(f"Foursquare search failed: {e}")
-
-    # ─── 1b. OpenStreetMap Overpass (fallback gratuit, sans clé) ─────────────
+    # ─── OpenStreetMap Overpass (gratuit, sans clé, fiable) ──────────────────
+    # Foursquare supprimé — API renvoie 410 Gone
     # Si pas de coordonnées GPS → geocoder la zone texte
     if not (midpoint_lat and midpoint_lng) and location:
         midpoint_lat, midpoint_lng = await _geocode(location, log)

@@ -179,9 +179,11 @@ async def share_page(event_id: str, request: Request, db: AsyncSession = Depends
     from app.models.event import Event
     from app.models.preference import Preference
 
+    import urllib.parse as _ul
     base = os.environ.get("PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
-    join_url = f"{base}/join/{event_id}"
+    join_url   = f"{base}/join/{event_id}"
     result_url = f"{base}/result/{event_id}"
+    wa_result_url = "https://wa.me/?text=" + _ul.quote(f"The plan is ready! See it here: {result_url}")
 
     # Vérifier si la proposal est déjà publiée → rediriger directement
     from app.models.proposal import Proposal
@@ -264,23 +266,35 @@ async def share_page(event_id: str, request: Request, db: AsyncSession = Depends
         f"<div class='counter-num'>{submitted}/{expected}</div>"
         "</div>"
 
-        # Lien
-        f"<div class='link-box'>{join_url}</div>"
-
-        # Boutons de partage
-        f"<a class='btn wa' href='{wa_url}' target='_blank'><span class='icon'>📱</span> Share via WhatsApp</a>"
-        f"<a class='btn tg' href='{tg_url}' target='_blank'><span class='icon'>✈️</span> Share via Telegram</a>"
-        "<button class='btn cp' onclick=\"navigator.clipboard.writeText('" + join_url + "');"
-        "this.innerHTML='<span class=\\'icon\\'>✅</span> Copied!';setTimeout(()=>this.innerHTML='<span class=\\'icon\\'>📋</span> Copy link',2000)\">"
+        # Bouton share natif (Web Share API) + fallbacks
+        "<div id='share-zone'>"
+        # Bouton principal : ouvre la feuille de partage native de l'OS
+        f"<button class='btn wa' id='share-btn' onclick='doShare()'>"
+        "<span class='icon'>🔗</span> Share with your contacts</button>"
+        # Fallbacks visibles si Web Share non disponible
+        "<div id='fallbacks' style='display:none'>"
+        f"<a class='btn wa' href='{wa_url}' target='_blank'><span class='icon'>📱</span> WhatsApp</a>"
+        f"<a class='btn tg' href='{tg_url}' target='_blank'><span class='icon'>✈️</span> Telegram</a>"
+        "<button class='btn cp' id='copy-btn' onclick=\"navigator.clipboard.writeText('" + join_url + "');"
+        "document.getElementById('copy-btn').innerHTML='<span class=\\'icon\\'>✅</span> Copied!';setTimeout(()=>document.getElementById('copy-btn').innerHTML='<span class=\\'icon\\'>📋</span> Copy link',2000)\">"
         "<span class='icon'>📋</span> Copy link</button>"
+        "</div>"
+        "</div>"
+        "<div class='link-box' style='margin-top:10px'>" + join_url + "</div>"
 
         f"<a class='btn result' href='{result_url}'>See proposal when ready →</a>"
         "<hr style='border:1px solid rgba(255,255,255,.06);margin:16px 0'>"
-        "<p style='font-size:13px;color:#64748b;margin-bottom:10px'>Share the result link so everyone can see the proposal:</p>"
-        f"<a class='btn' style='background:#0f172a;border:1.5px solid rgba(255,255,255,.1);color:#94a3b8;justify-content:center'"
-        f" href='https://wa.me/?text={__import__(\"urllib.parse\",fromlist=[\"parse\"]).parse.quote(\"The plan is ready! See it here: \" + result_url)}' target='_blank'>"
-        "📱 Share result via WhatsApp</a>"
-        "<p style='font-size:12px;color:#475569;margin-top:12px;text-align:center'>Preferences page refreshes every 15s</p>"
+        "<p style='font-size:13px;color:#64748b;margin-bottom:10px'>When the proposal is ready, share it:</p>"
+        f"<button class='btn' style='background:#0f172a;border:1.5px solid rgba(255,255,255,.1);color:#94a3b8;justify-content:center'"
+        f" onclick='doShareResult()'>📤 Share result with group</button>"
+        "<p style='font-size:12px;color:#475569;margin-top:12px;text-align:center'>Page refreshes every 15s</p>"
+        f"<script>"
+        f"const JOIN_URL='{join_url}';const RESULT_URL='{result_url}';"
+        "function doShare(){if(navigator.share){navigator.share({title:'Okeder',text:'Respond in 30s so we can plan our outing! 👉',url:JOIN_URL}).catch(()=>{});}"
+        "else{document.getElementById('fallbacks').style.display='block';document.getElementById('share-btn').style.display='none';}}"
+        "function doShareResult(){if(navigator.share){navigator.share({title:'Okeder — The plan is ready!',text:'The plan is ready! See it here 👉',url:RESULT_URL}).catch(()=>{});}"
+        f"else{{window.open('{wa_result_url}','_blank');}}}"
+        "</script>"
         "</div></body></html>"
     )
     return HTMLResponse(content=html)

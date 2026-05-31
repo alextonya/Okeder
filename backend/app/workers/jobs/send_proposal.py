@@ -224,6 +224,19 @@ async def _notify_non_telegram(proposal, event, db) -> None:
     )
     members = members_result.scalars().all()
 
+    # WhatsApp aux membres ayant fourni un numéro de téléphone
+    from app.services.notification_service import send_whatsapp_message
+    for member in members:
+        if member.phone and member.whatsapp_notify:
+            await send_whatsapp_message(
+                phone=member.phone,
+                text=(
+                    f"🎯 *{proposal.title or 'Your group outing is planned!'}*\n\n"
+                    f"{summary}\n\n"
+                    f"See the full proposal: {result_url}"
+                ),
+            )
+
     # Email aux membres ayant fourni un email ET sans Telegram
     for member in members:
         if member.email and not member.telegram_user_id:
