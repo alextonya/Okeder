@@ -28,6 +28,8 @@ class Event(UUIDMixin, TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, default=EventStatus.COLLECTING)
     constraint_deadline: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Localisation pour la recherche Eventbrite (ex: "Paris", "Bastille", "London")
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Wizard of Oz: initiateur gère manuellement jusqu'à désactivation
     wizard_mode: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

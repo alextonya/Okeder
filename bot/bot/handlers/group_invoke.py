@@ -48,11 +48,13 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
         # 3. Créer l'event
+        msg_text = update.message.text or ""
         resp = await api.post(
             "/internal/telegram/create-event",
             json={
                 "telegram_chat_id": chat.id,
-                "title": _extract_title(update.message.text or ""),
+                "title": _extract_title(msg_text),
+                "location": _extract_location(msg_text),
                 "wizard_mode": True,
             },
         )
@@ -102,3 +104,32 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
 def _extract_title(text: str) -> str | None:
     clean = text.replace("@OkederBot", "").replace("@Okeder", "").strip()
     return clean if len(clean) > 3 else None
+
+
+def _extract_location(text: str) -> str | None:
+    """
+    Extrait la localisation du message d'invocation.
+    Exemples :
+      "@OkederBot sortie à Paris" → "Paris"
+      "@OkederBot dinner in London" → "London"
+      "@OkederBot on sort à Bastille ce soir" → "Bastille"
+    """
+    import re
+    clean = text.replace("@OkederBot", "").replace("@Okeder", "").strip()
+
+    # Patterns FR et EN
+    patterns = [
+        r"\bà\s+([A-ZÀ-Ÿa-zà-ÿ][A-Za-zÀ-ÿ\s\-]{1,30}?)(?:\s+ce|\s+cette|\s+le|\s+la|\s*$)",
+        r"\bin\s+([A-Z][A-Za-z\s\-]{1,30}?)(?:\s+this|\s+on|\s*$)",
+        r"\bnear\s+([A-Za-z\s\-]{2,30}?)(?:\s+this|\s+on|\s*$)",
+        r"\bprès\s+de\s+([A-ZÀ-Ÿa-zà-ÿ][A-Za-zÀ-ÿ\s\-]{1,30}?)(?:\s|\s*$)",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, clean, re.IGNORECASE)
+        if m:
+            loc = m.group(1).strip().rstrip(".,!")
+            if len(loc) >= 2:
+                return loc.title()
+
+    return None

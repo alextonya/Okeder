@@ -146,6 +146,7 @@ async def create_event(
     event = Event(
         group_id=group.id,
         title=body.get("title"),
+        location=body.get("location"),      # ex: "Paris", "Bastille", "London"
         wizard_mode=body.get("wizard_mode", True),
         constraint_deadline=deadline,
         created_by=group.initiator_id,

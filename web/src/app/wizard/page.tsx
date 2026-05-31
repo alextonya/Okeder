@@ -217,7 +217,18 @@ export default function WizardPage() {
                   {detail.status}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
+                <button
+                  onClick={() => doAction(() => api(`/wizard/events/${detail.id}/toggle-auto`, { method: "POST" }))}
+                  disabled={loading === "action"}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-50 ${
+                    detail.wizard_mode
+                      ? "border-amber-700 text-amber-400 hover:border-amber-500"
+                      : "border-green-700 bg-green-900/30 text-green-400 hover:border-green-500"
+                  }`}
+                >
+                  {detail.wizard_mode ? "🧙 Wizard → passer en Auto" : "🤖 Auto → repasser en Wizard"}
+                </button>
                 {STATUS_NEXT[detail.status] && (
                   <button
                     onClick={() => doAction(() => api(`/wizard/events/${detail.id}/advance-status`, { method: "POST", body: JSON.stringify({ status: STATUS_NEXT[detail.status] }) }))}

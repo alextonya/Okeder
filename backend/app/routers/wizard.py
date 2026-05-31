@@ -168,6 +168,22 @@ async def advance_status(
     return {"status": event.status}
 
 
+@router.post("/events/{event_id}/toggle-auto")
+async def toggle_auto_mode(
+    event_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_member: Member = Depends(get_current_member),
+):
+    """Bascule wizard_mode ON/OFF. Si OFF → le prochain quorum publie automatiquement."""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    event.wizard_mode = not event.wizard_mode
+    await db.commit()
+    return {"wizard_mode": event.wizard_mode}
+
+
 @router.post("/events/{event_id}/trigger-engine")
 async def trigger_engine(
     event_id: uuid.UUID,
