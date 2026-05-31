@@ -2,9 +2,10 @@
 ConversationHandler FSM : collecte des contraintes par DM privé.
 États : DM_CONSENT_CHECK → DM_BUDGET → DM_AVAILABILITY → DM_PREFERENCES → DM_CONFIRM_SUBMIT
 """
+import os
 import re
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -15,6 +16,7 @@ from telegram.ext import (
 )
 
 from bot.api_client import backend_client
+from bot.config import settings
 from bot.fsm.states import BotState
 from bot.keyboards.consent_kb import consent_keyboard
 from bot.templates.messages import (
@@ -27,14 +29,55 @@ from bot.templates.messages import (
 )
 
 
+async def _send_webapp_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, event_id: str
+) -> int:
+    """Envoie le bouton WebApp en DM — identité Telegram injectée automatiquement."""
+    user = update.effective_user
+
+    # Enregistrer le membre (maintenant qu'il interagit avec le bot)
+    if user:
+        async with backend_client() as api:
+            await api.post(
+                "/internal/telegram/register-member",
+                json={"telegram_user_id": user.id, "display_name": user.full_name or str(user.id)},
+            )
+
+    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+    mini_app_url = f"{public_url}/mini-app/{event_id}"
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "📝 Open preference form",
+            web_app=WebAppInfo(url=mini_app_url),
+        )
+    ]])
+
+    await update.message.reply_text(
+        "👋 Tap below to submit your preferences — takes 30 seconds!",
+        reply_markup=keyboard,
+    )
+    return ConversationHandler.END
+
+
 async def start_constraint_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """/start — deep link: /start start_preferences_{event_id}"""
+    """/start — gère deux deep links :
+    - start_preferences_{event_id} : ancien format (DM direct)
+    - event_{event_id} : nouveau format (deep link depuis groupe → WebApp en DM)
+    """
     if not update.message:
         return ConversationHandler.END
 
-    # Telegram passe le paramètre deep link dans context.args[0]
     args = context.args or []
     param = args[0] if args else (update.message.text or "")
+
+    # Nouveau format : event_{event_id} → envoyer bouton WebApp en DM
+    event_match = re.search(r"^event_([a-f0-9-]{36})$", param)
+    if event_match:
+        event_id = event_match.group(1)
+        return await _send_webapp_button(update, context, event_id)
+
+    # Ancien format : start_preferences_{event_id}
     match = re.search(r"start_preferences_([a-f0-9-]{36})", param)
     if not match:
         # /start générique — juste accueillir

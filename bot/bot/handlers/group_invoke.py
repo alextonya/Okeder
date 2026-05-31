@@ -65,9 +65,9 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
     event_id = data.get("event_id", "")
     existing = data.get("existing", False)
 
-    # URL publique du Mini App (ngrok en dev, domaine réel en prod)
-    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
-    mini_app_url = f"{public_url}/mini-app/{event_id}"
+    # Deep link vers le bot en DM — le bot y enverra le bouton WebApp
+    bot_username = settings.telegram_bot_username or "OkederBot"
+    deep_link = f"https://t.me/{bot_username}?start=event_{event_id}"
 
     if existing:
         intro = "⚡ <b>There's already an active event!</b>\nStill collecting preferences:"
@@ -78,11 +78,11 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
             "Takes 30 seconds — no app needed."
         )
 
-    # Bouton URL — ouvre le Mini App dans le navigateur
+    # Bouton deep link → ouvre le bot en DM → le bot envoie le WebApp
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "📝 Submit my preferences →",
-            url=mini_app_url,
+            url=deep_link,
         )
     ]])
 

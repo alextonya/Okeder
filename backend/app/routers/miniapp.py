@@ -141,6 +141,18 @@ MINI_APP_HTML = """<!DOCTYPE html>
     const BACKEND_URL = "{backend_url}";
     const selectedCats = new Set();
 
+    // Préremplir le nom depuis Telegram si disponible (modifiable par l'utilisateur)
+    window.addEventListener('load', () => {{
+      const user = tg.initDataUnsafe?.user;
+      if (user) {{
+        const nameField = document.getElementById('display-name');
+        if (nameField && !nameField.value) {{
+          nameField.value = user.first_name || '';
+          nameField.placeholder = user.first_name || 'Your name';
+        }}
+      }}
+    }});
+
     // Chip selection
     document.querySelectorAll('.chip').forEach(chip => {{
       chip.addEventListener('click', () => {{
