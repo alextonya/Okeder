@@ -169,4 +169,4 @@ async def _send_summary_dm(
     ]}
 
     from bot.telegram_utils import send_message as _send
-    await _send(chat_id=telegram_user_id, text=text, reply_markup=keyboard_dict)
+    await _send(chat_id=telegram_user_id, text=text, reply_markup=keyboard_dict, bot=context.bot)

@@ -77,18 +77,17 @@ async def handle_group_mention(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
     # Bouton deep link → ouvre le bot en DM → le bot envoie le WebApp
-    # Utilise urllib (pas httpx) pour éviter le bug TLS anyio/Python 3.14
     from bot.telegram_utils import send_message as _send
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-    keyboard_dict = {
-        "inline_keyboard": [[
-            {"text": "📝 Submit my preferences →", "url": deep_link}
-        ]]
-    }
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📝 Submit my preferences →", url=deep_link)
+    ]])
     await _send(
         chat_id=update.effective_chat.id,
         text=intro,
-        reply_markup=keyboard_dict,
+        reply_markup=keyboard,
+        bot=context.bot,
     )
 
 

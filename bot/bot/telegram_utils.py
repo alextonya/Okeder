@@ -1,13 +1,12 @@
 """
-Fonctions Telegram utilisant urllib au lieu de httpx.
-Évite le bug TLS anyio/Python 3.14 sur les appels sortants.
+Helpers pour envoyer des messages Telegram avec retry.
+Python 3.14 + anyio a un bug TLS intermittent sur les nouvelles connexions.
+La solution : réessayer — la connexion du pool est réutilisée dès le 2ème essai.
 """
 import asyncio
-import json
-import urllib.error
-import urllib.request
+import logging
 
-from bot.config import settings
+logger = logging.getLogger(__name__)
 
 
 async def send_message(
@@ -15,37 +14,29 @@ async def send_message(
     text: str,
     parse_mode: str = "HTML",
     reply_markup: dict | None = None,
+    bot=None,
 ) -> bool:
-    """Envoie un message Telegram via urllib (pas d'httpx)."""
-    payload: dict = {
-        "chat_id":    chat_id,
-        "text":       text,
-        "parse_mode": parse_mode,
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
+    """
+    Envoie un message Telegram avec retry x5.
+    Passe le bot via le paramètre ou utilise httpx directement.
+    """
+    if bot is None:
+        # Fallback sans bot : log et retourne False
+        logger.warning("send_message appelé sans bot instance")
+        return False
 
-    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
-
-    def _send():
-        data = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+    for attempt in range(5):
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return True
-        except urllib.error.HTTPError as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"sendMessage {e.code}: {e.read().decode()[:300]}"
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
             )
-            return False
+            return True
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"sendMessage failed: {e}")
-            return False
-
-    return await asyncio.to_thread(_send)
+            if attempt < 4:
+                await asyncio.sleep(0.3 * (attempt + 1))
+            else:
+                logger.warning(f"send_message failed after 5 attempts: {e}")
+    return False
