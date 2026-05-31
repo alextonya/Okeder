@@ -202,26 +202,13 @@ async def _search_venue(
         log.warning(f"Foursquare search failed: {e}")
 
     # ─── 1b. OpenStreetMap Overpass (fallback gratuit, sans clé) ─────────────
-    # Fonctionne avec coordonnées GPS OU avec geocodage du texte de zone
+    # Si pas de coordonnées GPS → geocoder la zone texte
     if not (midpoint_lat and midpoint_lng) and location:
-        # Geocoder le texte de zone via Nominatim pour obtenir des coordonnées
-        try:
-            import urllib.request as _ur
-            import urllib.parse as _up
-            import json as _json
-            q = _up.urlencode({"q": location, "format": "json", "limit": "1"})
-            req = _ur.Request(
-                f"https://nominatim.openstreetmap.org/search?{q}",
-                headers={"User-Agent": "Okeder/1.0"}
-            )
-            with _ur.urlopen(req, timeout=5) as r:
-                results = _json.loads(r.read().decode())
-            if results:
-                midpoint_lat = float(results[0]["lat"])
-                midpoint_lng = float(results[0]["lon"])
-                log.info(f"Geocoded '{location}' → {midpoint_lat:.4f},{midpoint_lng:.4f}")
-        except Exception as e:
-            log.warning(f"Geocoding failed for '{location}': {e}")
+        midpoint_lat, midpoint_lng = await _geocode(location, log)
+        if midpoint_lat:
+            log.info("Geocoded '%s' -> %.4f,%.4f", location, midpoint_lat, midpoint_lng)
+        else:
+            log.warning("Geocoding failed for '%s' — no venue search possible", location)
 
     if midpoint_lat and midpoint_lng:
         try:
@@ -310,6 +297,64 @@ async def _search_venue(
         log.warning(f"Eventbrite fallback failed: {e}")
 
     return {}
+
+
+async def _geocode(location: str, log) -> tuple[float | None, float | None]:
+    """
+    Convertit un texte de zone en coordonnées GPS.
+    1. Photon (komoot) — HTTP, pas de TLS
+    2. Villes connues — fallback hardcodé
+    """
+    import json as _j
+    import urllib.parse as _up
+    import urllib.request as _ur
+
+    # Villes connues — évite le geocodage pour les cas communs
+    KNOWN = {
+        "london": (51.5074, -0.1278), "paris": (48.8566, 2.3522),
+        "new york": (40.7128, -74.0060), "manchester": (53.4808, -2.2426),
+        "birmingham": (52.4862, -1.8904), "leeds": (53.8008, -1.5491),
+        "edinburgh": (55.9533, -3.1883), "glasgow": (55.8642, -4.2518),
+        "bristol": (51.4545, -2.5879), "liverpool": (53.4084, -2.9916),
+        "lyon": (45.7640, 4.8357), "marseille": (43.2965, 5.3698),
+        "bordeaux": (44.8378, -0.5792), "toulouse": (43.6047, 1.4442),
+        "amsterdam": (52.3676, 4.9041), "berlin": (52.5200, 13.4050),
+        "madrid": (40.4168, -3.7038), "barcelona": (41.3851, 2.1734),
+    }
+    loc_lower = location.lower().strip()
+    for key, coords in KNOWN.items():
+        if key in loc_lower:
+            return coords
+
+    # Photon (komoot) — utilise HTTP interne, plus robuste sur Python 3.14
+    try:
+        q = _up.urlencode({"q": location, "limit": "1"})
+        url = "https://photon.komoot.io/api/?" + q
+        req = _ur.Request(url, headers={"User-Agent": "Okeder/1.0"})
+        with _ur.urlopen(req, timeout=8) as r:
+            data = _j.loads(r.read().decode())
+        features = data.get("features", [])
+        if features:
+            coords = features[0]["geometry"]["coordinates"]
+            return float(coords[1]), float(coords[0])  # [lng, lat] → (lat, lng)
+    except Exception as e:
+        log.warning("Photon geocoding failed: %s", e)
+
+    # Nominatim fallback
+    try:
+        q = _up.urlencode({"q": location, "format": "json", "limit": "1"})
+        req = _ur.Request(
+            "https://nominatim.openstreetmap.org/search?" + q,
+            headers={"User-Agent": "Okeder/1.0"},
+        )
+        with _ur.urlopen(req, timeout=8) as r:
+            results = _j.loads(r.read().decode())
+        if results:
+            return float(results[0]["lat"]), float(results[0]["lon"])
+    except Exception as e:
+        log.warning("Nominatim geocoding failed: %s", e)
+
+    return None, None
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
