@@ -61,6 +61,7 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
             budget_max_cents=spec.budget_target_cents,
             midpoint_lat=spec.midpoint_lat,
             midpoint_lng=spec.midpoint_lng,
+            preferences=preferences,
         )
 
         # ─── 4. Calculer les distances membres → venue ────────────────────────
@@ -162,6 +163,7 @@ async def _search_venue(
     budget_max_cents: int,
     midpoint_lat: float | None = None,
     midpoint_lng: float | None = None,
+    preferences: list | None = None,
 ) -> dict:
     """
     Recherche un venue : Foursquare en priorité, Eventbrite en fallback.
