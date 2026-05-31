@@ -456,9 +456,19 @@ MINI_APP_HTML = """<!DOCTYPE html>
       const depLat  = document.getElementById('departure-lat').value;
       const depLng  = document.getElementById('departure-lng').value;
       if (!depText) {{
-        alert('Indique ton point de départ');
+        alert('Please enter your starting point');
         document.getElementById('departure-text').focus();
         return;
+      }}
+      // Forcer la sélection dans la liste pour avoir des coordonnées précises
+      if (!depLat || !depLng) {{
+        const box = document.getElementById('departure-suggestions');
+        if (box.children.length > 0) {{
+          alert('Please select an address from the suggestions list (tap on a result).');
+          document.getElementById('departure-text').focus();
+          return;
+        }}
+        // Pas de suggestions disponibles — on soumet quand même avec texte seul
       }}
       if (!singleSelected.travel) {{
         alert('Indique ton temps de trajet maximum');

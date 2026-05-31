@@ -224,12 +224,22 @@ async def _search_venue(
                 activity=activity,
                 vibe=vibe,
             )
-            # Extraire les coordonnées des membres pour le scoring
-            member_coords = [
-                (float(p["raw_answers"]["departure_lat"]), float(p["raw_answers"]["departure_lng"]))
-                for p in preferences
-                if p.get("raw_answers", {}).get("departure_lat") and p.get("raw_answers", {}).get("departure_lng")
-            ]
+            # Coordonnées membres : GPS si dispo, sinon géocoder le texte
+            member_coords = []
+            for p in preferences:
+                raw = p.get("raw_answers") or {}
+                m_lat = raw.get("departure_lat")
+                m_lng = raw.get("departure_lng")
+                if m_lat and m_lng:
+                    try:
+                        member_coords.append((float(m_lat), float(m_lng)))
+                    except (ValueError, TypeError):
+                        pass
+                elif raw.get("departure_text"):
+                    g_lat, g_lng = await _geocode(raw["departure_text"], log)
+                    if g_lat and g_lng:
+                        member_coords.append((g_lat, g_lng))
+                        log.info("Geocoded member '%s' -> %.4f,%.4f", raw.get("departure_text"), g_lat, g_lng)
             # Collecter les hard constraints de tous les membres
             all_hard = []
             for p in preferences:
