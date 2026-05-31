@@ -63,7 +63,38 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
             midpoint_lng=spec.midpoint_lng,
         )
 
-        # ─── 4. Créer la proposal en DB ───────────────────────────────────────
+        # ─── 4. Calculer les distances membres → venue ────────────────────────
+        venue_lat = venue_data.get("lat") or (spec.midpoint_lat if spec.midpoint_lat else None)
+        venue_lng = venue_data.get("lng") or (spec.midpoint_lng if spec.midpoint_lng else None)
+
+        distances_info = []
+        if venue_lat and venue_lng:
+            for p in preferences:
+                raw = p.get("raw_answers") or {}
+                m_lat = raw.get("departure_lat")
+                m_lng = raw.get("departure_lng")
+                m_name = raw.get("display_name", "Member")
+                m_max = raw.get("travel_time_max", 30)
+                if m_lat and m_lng:
+                    dist_km = _haversine(float(m_lat), float(m_lng), venue_lat, venue_lng)
+                    # Estimation temps : ~4 km/h à pied + transports
+                    est_min = int(dist_km * 12)
+                    over = est_min > (m_max if m_max != 999 else 999)
+                    distances_info.append({
+                        "name": m_name,
+                        "dist_km": round(dist_km, 1),
+                        "est_min": est_min,
+                        "max_min": m_max,
+                        "over_max": over,
+                    })
+
+        # Enrichir legitimacy_json avec distances et vibe
+        spec.legitimacy_json["venue_lat"] = venue_lat
+        spec.legitimacy_json["venue_lng"] = venue_lng
+        spec.legitimacy_json["distances"] = distances_info
+        spec.legitimacy_json["vibe_proposed"] = spec.vibe
+
+        # ─── 5. Créer la proposal en DB ───────────────────────────────────────
         version_result = await db.execute(
             select(Proposal).where(Proposal.event_id == uuid.UUID(event_id))
             .order_by(Proposal.version.desc()).limit(1)
@@ -76,6 +107,15 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         if spec.datetime_hint and spec.datetime_hint != "TBD":
             title = f"{title} — {spec.datetime_hint}"
 
+        # Google Maps URL avec coordonnées précises si disponibles
+        gmaps_url = ""
+        if venue_lat and venue_lng:
+            gmaps_url = f"https://maps.google.com/?q={venue_lat},{venue_lng}&z=16"
+        elif venue_data.get("venue_name") and venue_data.get("venue_address"):
+            import urllib.parse
+            q = urllib.parse.quote(f"{venue_data['venue_name']} {venue_data['venue_address']}")
+            gmaps_url = f"https://maps.google.com/?q={q}"
+
         proposal = Proposal(
             event_id=uuid.UUID(event_id),
             version=next_version,
@@ -85,7 +125,7 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
             date_time=venue_data.get("date_time"),
             price_per_person=venue_data.get("price_cents") or spec.budget_target_cents,
             category=spec.category,
-            external_url=venue_data.get("url"),
+            external_url=gmaps_url or venue_data.get("url"),
             pct_budget_satisfied=spec.pct_budget_satisfied,
             pct_time_satisfied=spec.pct_time_satisfied,
             pct_prefs_satisfied=spec.pct_prefs_satisfied,
@@ -185,6 +225,8 @@ async def _search_venue(
                     "date_time":     None,
                     "price_cents":   None,
                     "url":           venue.get("url", ""),
+                    "lat":           venue.get("lat"),
+                    "lng":           venue.get("lng"),
                 }
         except Exception as e:
             log.warning(f"Overpass search failed: {e}")
@@ -229,6 +271,16 @@ async def _search_venue(
         log.warning(f"Eventbrite fallback failed: {e}")
 
     return {}
+
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distance en km entre deux coordonnées GPS (formule Haversine)."""
+    import math
+    R = 6371
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = math.sin(d_lat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon/2)**2
+    return R * 2 * math.asin(math.sqrt(a))
 
 
 async def enqueue_run_decision_engine(event_id: str) -> None:

@@ -5,7 +5,7 @@ Mode polling en dev (TELEGRAM_USE_POLLING=true), webhook en prod.
 import logging
 
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 from bot.config import settings
 from bot.handlers.commitment import handle_commitment_callback
@@ -21,22 +21,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler de debug — log tous les messages reçus."""
-    logger.info(f"[DEBUG] Update reçu: {update}")
-
-
 def build_app() -> Application:
     app = Application.builder().token(settings.telegram_bot_token).build()
 
-    # Handler de debug — à supprimer après les tests
-    from telegram.ext import TypeHandler
-    app.add_handler(TypeHandler(Update, debug_all), group=-1)
-
-    # ConversationHandler DM — doit être enregistré avant les handlers génériques
+    # ConversationHandler DM
     app.add_handler(build_constraint_conversation())
 
-    # Mention @OkederBot dans un groupe — insensible à la casse
+    # Mention @OkederBot dans un groupe
     app.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & filters.TEXT,
@@ -48,7 +39,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(handle_commitment_callback, pattern=r"^commit:|^noop$"))
     app.add_handler(CallbackQueryHandler(handle_rating_callback, pattern=r"^rate:"))
 
-    # Handler d'erreur global
+    # Handler d'erreur
     app.add_error_handler(error_handler)
 
     return app
@@ -61,7 +52,7 @@ def main() -> None:
         logger.info("Starting Okeder bot in polling mode (dev)")
         app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=-1)
     else:
-        logger.info(f"Starting Okeder bot in webhook mode: {settings.bot_webhook_url}")
+        logger.info("Starting Okeder bot in webhook mode")
         app.run_webhook(
             listen="0.0.0.0",
             port=8443,

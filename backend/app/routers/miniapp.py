@@ -377,53 +377,73 @@ MINI_APP_HTML = """<!DOCTYPE html>
       }});
     }});
 
-    // ─── Autocomplete adresse (Nominatim OpenStreetMap, gratuit) ─────────────
-    let _nominatimTimer = null;
-    let _departureConfirmed = false;
+    // ─── Autocomplete adresse (Photon by Komoot — meilleur que Nominatim) ────
+    // Photon utilise OSM mais avec fuzzy search bien supérieur pour les adresses précises
+    let _searchTimer = null;
 
     async function onDepartureInput(val) {{
-      _departureConfirmed = false;
       document.getElementById('departure-lat').value = '';
       document.getElementById('departure-lng').value = '';
       document.getElementById('departure-selected-hint').textContent = '';
 
-      clearTimeout(_nominatimTimer);
+      clearTimeout(_searchTimer);
       const box = document.getElementById('departure-suggestions');
 
-      if (val.length < 3) {{ box.style.display = 'none'; return; }}
+      if (val.length < 2) {{ box.style.display = 'none'; return; }}
 
-      _nominatimTimer = setTimeout(async () => {{
+      _searchTimer = setTimeout(async () => {{
+        box.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#64748b">Searching...</div>';
+        box.style.display = 'block';
+
         try {{
-          const url = `https://nominatim.openstreetmap.org/search?q=${{encodeURIComponent(val)}}&format=json&limit=5&addressdetails=1`;
-          const resp = await fetch(url, {{ headers: {{ 'Accept-Language': 'fr,en' }} }});
-          const results = await resp.json();
+          // Photon : bien meilleur pour adresses précises (maison, rue, quartier)
+          const url = `https://photon.komoot.io/api/?q=${{encodeURIComponent(val)}}&limit=7&lang=en`;
+          const resp = await fetch(url);
+          const data = await resp.json();
+          const features = data.features || [];
 
           box.innerHTML = '';
-          if (!results.length) {{ box.style.display = 'none'; return; }}
+          if (!features.length) {{
+            box.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#64748b">No results — try a different spelling</div>';
+            return;
+          }}
 
-          results.forEach(r => {{
+          features.forEach(f => {{
+            const p = f.properties;
+            const coords = f.geometry.coordinates; // [lng, lat]
+
+            // Construire un label lisible
+            const parts = [];
+            if (p.housenumber) parts.push(p.housenumber);
+            if (p.street || p.name) parts.push(p.street || p.name);
+            if (p.city || p.town || p.village) parts.push(p.city || p.town || p.village);
+            if (p.postcode) parts.push(p.postcode);
+            if (p.country) parts.push(p.country);
+            const label = parts.filter(Boolean).join(', ');
+            if (!label) return;
+
             const item = document.createElement('div');
-            item.textContent = r.display_name;
-            item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.07);';
+            item.textContent = label;
+            item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.07);line-height:1.4;';
+            item.addEventListener('mouseover', () => item.style.background = 'rgba(99,102,241,0.15)');
+            item.addEventListener('mouseout', () => item.style.background = '');
             item.addEventListener('mousedown', () => {{
-              document.getElementById('departure-text').value = r.display_name.split(',').slice(0,3).join(',').trim();
-              document.getElementById('departure-lat').value = r.lat;
-              document.getElementById('departure-lng').value = r.lon;
-              document.getElementById('departure-selected-hint').textContent = '✅ ' + r.display_name.split(',').slice(0,4).join(', ');
+              document.getElementById('departure-text').value = label;
+              document.getElementById('departure-lat').value = coords[1];
+              document.getElementById('departure-lng').value = coords[0];
+              document.getElementById('departure-selected-hint').textContent = '✅ ' + label;
               box.style.display = 'none';
-              _departureConfirmed = true;
             }});
             box.appendChild(item);
           }});
-          box.style.display = 'block';
         }} catch(e) {{
-          box.style.display = 'none';
+          box.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#ef4444">Search error — check your connection</div>';
         }}
-      }}, 400);
+      }}, 300);
     }}
 
     document.getElementById('departure-text').addEventListener('blur', () => {{
-      setTimeout(() => {{ document.getElementById('departure-suggestions').style.display = 'none'; }}, 200);
+      setTimeout(() => {{ document.getElementById('departure-suggestions').style.display = 'none'; }}, 250);
     }});
 
     async function submitPrefs() {{
