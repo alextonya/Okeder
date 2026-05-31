@@ -8,15 +8,24 @@ from app.config import settings
 
 
 async def send_telegram_message(chat_id: int | str, text: str, reply_markup: dict | None = None) -> None:
+    import asyncio
     payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-            json=payload,
-        )
+    # Retry x3 — TLS intermittent sur Python 3.14 + anyio
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                    json=payload,
+                )
+            return
+        except Exception:
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+            # Dernier essai échoué → silencieux (le DM est best-effort)
 
 
 async def send_whatsapp_template(phone: str, template_name: str, params: list[str]) -> None:
