@@ -4,7 +4,7 @@ Après chaque commitment → DM récapitulatif avec préférences + options.
 """
 import os
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.api_client import backend_client
@@ -16,16 +16,22 @@ LEVEL_LABELS = {
     "hard":      "🔒 Locked In",
 }
 
-OPPOSITE_LEVELS = {
-    "soft":      [("confirmed", "✅ Change to I'm In")],
-    "confirmed": [("soft", "👍 Change to Interested")],
-}
+ALL_LEVELS = [
+    ("soft",      "👍 Interested"),
+    ("confirmed", "✅ I'm In"),
+    ("hard",      "🔒 Lock In"),
+]
 
 
 async def handle_commitment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """commit:{level}:{proposal_id}:{event_id}"""
     query = update.callback_query
     await query.answer()
+
+    # Ignorer le bouton "current" (noop)
+    if query.data == "noop":
+        await query.answer(text="That's your current choice.", show_alert=False)
+        return
 
     parts = query.data.split(":")
     if len(parts) < 3:
@@ -136,34 +142,39 @@ async def _send_summary_dm(
     text = "\n".join(lines)
 
     # ─── Boutons ──────────────────────────────────────────────────────────────
-    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
-    mini_app_url = f"{public_url}/mini-app/{event_id}"
+    keyboard_rows = []
 
-    buttons = []
+    # Les 3 niveaux — le niveau actuel est marqué d'une coche
+    p_short = proposal_id.replace("-", "")[:12]
+    e_short = event_id.replace("-", "")[:12] if event_id else "000000000000"
+    for alt_level, alt_label in ALL_LEVELS:
+        if alt_level == commitment_level:
+            # Niveau actuel — bouton désactivé avec coche
+            keyboard_rows.append([
+                InlineKeyboardButton(f"✓ {alt_label} (current)", callback_data="noop")
+            ])
+        else:
+            keyboard_rows.append([
+                InlineKeyboardButton(
+                    f"Change to {alt_label}",
+                    callback_data=f"commit:{alt_level}:{p_short}:{e_short}",
+                )
+            ])
 
-    # Modifier les préférences → ouvre le Mini App (prérempli)
-    buttons.append(InlineKeyboardButton(
-        "✏️ Modify my preferences",
-        web_app=WebAppInfo(url=mini_app_url),
-    ))
-
-    keyboard_rows = [[buttons[0]]]
-
-    # Changer le niveau de commitment
-    for alt_level, alt_label in OPPOSITE_LEVELS.get(commitment_level, []):
-        keyboard_rows.append([
-            InlineKeyboardButton(
-                alt_label,
-                callback_data=f"commit:{alt_level}:{proposal_id}:{event_id}",
-            )
+    # Bouton "Modifier" uniquement si PUBLIC_URL est défini (URL publique valide)
+    public_url = os.environ.get("PUBLIC_URL", "")
+    if public_url and public_url.startswith("https://"):
+        mini_app_url = f"{public_url}/mini-app/{event_id}"
+        keyboard_rows.insert(0, [
+            InlineKeyboardButton("✏️ Modify my preferences", url=mini_app_url)
         ])
 
     try:
         await context.bot.send_message(
             chat_id=telegram_user_id,
             text=text,
-            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(keyboard_rows),
         )
-    except Exception:
-        pass  # L'utilisateur n'a peut-être pas démarré le bot en DM
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"DM summary failed: {e}")

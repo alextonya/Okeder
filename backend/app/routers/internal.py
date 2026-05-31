@@ -281,13 +281,26 @@ async def commitment_from_bot(
     if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    # Retrouver la proposal par prefix (LIKE sur UUID sans tirets)
-    prop_result = await db.execute(
-        select(Proposal).where(
-            sa_text(f"REPLACE(proposals.id::text, '-', '') LIKE '{proposal_prefix}%'")
-        ).limit(1)
-    )
-    proposal = prop_result.scalar_one_or_none()
+    # Retrouver la proposal : essaie UUID complet d'abord, puis prefix court
+    import re as _re
+    proposal = None
+    # Format UUID complet (ancien format avec tirets)
+    uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
+    if uuid_pattern.match(proposal_prefix):
+        import uuid as _uuid
+        prop_result = await db.execute(
+            select(Proposal).where(Proposal.id == _uuid.UUID(proposal_prefix))
+        )
+        proposal = prop_result.scalar_one_or_none()
+    else:
+        # Nouveau format : prefix 12 chars sans tirets
+        clean = proposal_prefix.replace("-", "")
+        prop_result = await db.execute(
+            select(Proposal).where(
+                sa_text(f"REPLACE(proposals.id::text, '-', '') LIKE '{clean}%'")
+            ).limit(1)
+        )
+        proposal = prop_result.scalar_one_or_none()
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
 

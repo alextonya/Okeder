@@ -45,7 +45,7 @@ def build_app() -> Application:
     )
 
     # Callbacks clavier inline
-    app.add_handler(CallbackQueryHandler(handle_commitment_callback, pattern=r"^commit:"))
+    app.add_handler(CallbackQueryHandler(handle_commitment_callback, pattern=r"^commit:|^noop$"))
     app.add_handler(CallbackQueryHandler(handle_rating_callback, pattern=r"^rate:"))
 
     # Handler d'erreur global
