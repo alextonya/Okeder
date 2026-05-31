@@ -32,7 +32,10 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
         if not group or not group.telegram_chat_id:
             return
 
-        text = _format_proposal_card(proposal)
+        # Version > 1 = mise à jour suite à plus de soumissions
+        prefix = f"🔄 <b>Updated proposal</b> (v{proposal.version} — more preferences received)\n\n" \
+                 if proposal.version > 1 else ""
+        text = prefix + _format_proposal_card(proposal)
         keyboard = _build_commitment_keyboard(proposal_id, str(proposal.event_id))
         await send_telegram_message(group.telegram_chat_id, text, reply_markup=keyboard)
 

@@ -506,8 +506,13 @@ async def submit_mini_app_preferences(
     await db.commit()
 
     # Vérifier si le quorum est atteint → déclencher l'engine si wizard_mode=False
-    from app.workers.jobs.collect_constraints import check_and_trigger_engine
-    await check_and_trigger_engine(event_id_str, db)
+    # Wrapped dans try/except pour ne jamais bloquer la réponse au membre
+    try:
+        from app.workers.jobs.collect_constraints import check_and_trigger_engine
+        await check_and_trigger_engine(event_id_str, db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"check_and_trigger_engine: {e}")
 
     return {"ok": True}
 
