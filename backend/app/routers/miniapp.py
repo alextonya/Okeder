@@ -196,15 +196,95 @@ MINI_APP_HTML = """<!DOCTYPE html>
     const selected = {{ vibe: new Set(), activity: new Set() }};
     const singleSelected = {{ departure: null, travel: null }};
 
-    // Préremplir prénom depuis Telegram
-    window.addEventListener('load', () => {{
+    // ─── Préremplissage au chargement ────────────────────────────────────────
+    window.addEventListener('load', async () => {{
+      // 1. Prénom depuis Telegram
       const user = tg.initDataUnsafe?.user;
       if (user?.first_name) {{
         const f = document.getElementById('display-name');
         f.value = user.first_name;
         f.placeholder = user.first_name;
       }}
+
+      // 2. Préférences existantes (si initData disponible = WebApp depuis DM)
+      if (tg.initData) {{
+        try {{
+          const res = await fetch(BACKEND_URL + '/mini-app/' + EVENT_ID + '/prefill', {{
+            method: 'POST',
+            headers: {{
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true',
+            }},
+            body: JSON.stringify({{ init_data: tg.initData }}),
+          }});
+
+          if (res.ok) {{
+            const data = await res.json();
+            if (data.found) _prefillForm(data);
+          }}
+        }} catch (e) {{
+          // Silencieux — formulaire vide si pas de données
+        }}
+      }}
     }});
+
+    function _prefillForm(data) {{
+      // Vibe
+      (data.vibe || []).forEach(v => {{
+        const chip = document.querySelector(`.chip[data-group="vibe"][data-val="${{v}}"]`);
+        if (chip) {{ chip.classList.add('selected'); selected.vibe.add(v); }}
+      }});
+
+      // Activité
+      (data.activity || []).forEach(v => {{
+        const chip = document.querySelector(`.chip[data-group="activity"][data-val="${{v}}"]`);
+        if (chip) {{ chip.classList.add('selected'); selected.activity.add(v); }}
+      }});
+
+      // Départ (single)
+      if (data.departure_type) {{
+        const chip = document.querySelector(`.chip.single[data-group="departure"][data-val="${{data.departure_type}}"]`);
+        if (chip) {{
+          chip.classList.add('selected');
+          singleSelected.departure = data.departure_type;
+          if (data.departure_type === 'other') {{
+            document.getElementById('departure-extra').style.display = 'block';
+          }}
+        }}
+      }}
+      if (data.departure_text) {{
+        document.getElementById('departure-text').value = data.departure_text;
+      }}
+
+      // Temps de trajet (single)
+      if (data.travel_time_max) {{
+        const val = String(data.travel_time_max);
+        const chip = document.querySelector(`.chip.single[data-group="travel"][data-val="${{val}}"]`);
+        if (chip) {{
+          chip.classList.add('selected');
+          singleSelected.travel = val;
+        }}
+      }}
+
+      // Budget
+      if (data.budget_min) document.getElementById('budget-min').value = Math.round(data.budget_min / 100);
+      if (data.budget_max) document.getElementById('budget-max').value = Math.round(data.budget_max / 100);
+
+      // Hard nos
+      if (data.hard_constraints?.length) {{
+        document.getElementById('hard-nos').value = data.hard_constraints.join(', ');
+      }}
+
+      // Nom
+      if (data.display_name) {{
+        const f = document.getElementById('display-name');
+        if (!f.value) f.value = data.display_name;
+      }}
+
+      // Indicateur visuel
+      const subtitle = document.querySelector('.subtitle');
+      if (subtitle) subtitle.textContent = '✏️ Modifie tes préférences si besoin.';
+    }}
 
     // Chips multi-select (vibe, activity)
     document.querySelectorAll('.chip:not(.single)').forEach(chip => {{
@@ -415,3 +495,66 @@ async def submit_mini_app_preferences(
 
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/mini-app/{event_id}/prefill")
+async def get_existing_preferences(
+    event_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retourne les préférences existantes d'un membre pour préremplir le formulaire.
+    Identité validée via Telegram initData.
+    Retourne {"found": False} si aucune donnée existante.
+    """
+    from app.models.member import Member
+    from app.models.preference import Preference
+
+    body = await request.json()
+    init_data = body.get("init_data", "")
+
+    user_data = _validate_telegram_init_data(init_data, settings.telegram_bot_token) if init_data else None
+    if not user_data:
+        return {"found": False}
+
+    tg_user_id = user_data.get("id")
+    member_result = await db.execute(
+        select(Member).where(Member.telegram_user_id == tg_user_id)
+    )
+    member = member_result.scalar_one_or_none()
+    if not member:
+        return {"found": False}
+
+    try:
+        event_uuid = uuid.UUID(event_id)
+    except ValueError:
+        return {"found": False}
+
+    pref_result = await db.execute(
+        select(Preference).where(
+            Preference.event_id == event_uuid,
+            Preference.member_id == member.id,
+            Preference.declined == False,  # noqa: E712
+            Preference.submitted_at != None,  # noqa: E711
+        )
+    )
+    pref = pref_result.scalar_one_or_none()
+    if not pref:
+        return {"found": False}
+
+    # Extraire depuis raw_answers (source de vérité pour les nouveaux champs)
+    raw = pref.raw_answers or {}
+
+    return {
+        "found": True,
+        "vibe":            raw.get("vibe", []),
+        "activity":        raw.get("activity", []),
+        "departure_type":  raw.get("departure_type"),
+        "departure_text":  raw.get("departure_text"),
+        "travel_time_max": raw.get("travel_time_max"),
+        "budget_min":      pref.budget_min,
+        "budget_max":      pref.budget_max,
+        "hard_constraints": pref.hard_constraints or [],
+        "display_name":    member.display_name,
+    }
