@@ -11,6 +11,7 @@ from app.routers import (
     commitments,
     events,
     groups,
+    home,
     internal,
     miniapp,
     preferences,
@@ -61,6 +62,7 @@ app.include_router(internal.router, prefix="/v1/internal/telegram", tags=["inter
 app.include_router(miniapp.router, tags=["miniapp"])
 app.include_router(pwa.router, tags=["pwa"])
 app.include_router(sw_route.router, tags=["sw"])
+app.include_router(home.router, tags=["home"])
 
 
 @app.get("/health")
