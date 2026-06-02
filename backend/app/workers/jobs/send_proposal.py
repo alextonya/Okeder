@@ -217,12 +217,23 @@ async def _notify_non_telegram(proposal, event, db) -> None:
             summary_parts[-1] += " — " + proposal.venue_address
     summary = "\n".join(summary_parts) if summary_parts else "Group Outing"
 
-    # Membres du groupe
-    members_result = await db.execute(
+    # Membres = groupe (Telegram) + tous ceux qui ont soumis des préférences (PWA)
+    from app.models.preference import Preference
+    group_members_result = await db.execute(
         select(Member).join(GroupMembership, Member.id == GroupMembership.member_id)
         .where(GroupMembership.group_id == event.group_id)
     )
-    members = members_result.scalars().all()
+    pref_members_result = await db.execute(
+        select(Member).join(Preference, Member.id == Preference.member_id)
+        .where(Preference.event_id == event.id, Preference.submitted_at != None)  # noqa: E711
+    )
+    # Fusionner sans doublons
+    seen_ids = set()
+    members = []
+    for m in list(group_members_result.scalars().all()) + list(pref_members_result.scalars().all()):
+        if m.id not in seen_ids:
+            seen_ids.add(m.id)
+            members.append(m)
 
     # WhatsApp aux membres ayant fourni un numéro de téléphone
     from app.services.notification_service import send_whatsapp_message
@@ -237,9 +248,20 @@ async def _notify_non_telegram(proposal, event, db) -> None:
                 ),
             )
 
-    # Email aux membres ayant fourni un email ET sans Telegram
+    # Telegram DM aux membres qui ont un telegram_user_id (notification directe)
+    from app.services.notification_service import send_telegram_message
     for member in members:
-        if member.email and not member.telegram_user_id:
+        if member.telegram_user_id:
+            tg_text = (
+                "🎯 <b>" + (proposal.title or "Group Outing") + "</b>\n\n"
+                + summary + "\n\n"
+                + "See the full proposal: " + result_url
+            )
+            await send_telegram_message(member.telegram_user_id, tg_text)
+
+    # Email aux membres ayant fourni un email
+    for member in members:
+        if member.email:
             await send_proposal_email(
                 to_email=member.email,
                 participant_name=member.display_name or "Friend",
