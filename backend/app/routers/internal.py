@@ -224,6 +224,13 @@ async def submit_preferences_from_bot(
     from app.workers.jobs.collect_constraints import check_and_trigger_engine
     await check_and_trigger_engine(event_id, db)
 
+    # Synthèse temps réel à l'initiateur
+    try:
+        from app.services.synthesis import update_initiator_synthesis
+        await update_initiator_synthesis(event_id, db)
+    except Exception:
+        pass
+
     return {"ok": True}
 
 
@@ -253,6 +260,19 @@ async def preference_declined(
     )
     db.add(pref)
     await db.commit()
+
+    # Un refus peut faire atteindre le quorum aux autres + maj synthèse initiateur
+    try:
+        from app.workers.jobs.collect_constraints import check_and_trigger_engine
+        await check_and_trigger_engine(event_id, db)
+    except Exception:
+        pass
+    try:
+        from app.services.synthesis import update_initiator_synthesis
+        await update_initiator_synthesis(event_id, db)
+    except Exception:
+        pass
+
     return {"ok": True}
 
 
@@ -321,6 +341,13 @@ async def commitment_from_bot(
 
     from app.routers.ws import broadcast_commitment_update
     await broadcast_commitment_update(str(proposal.id))
+
+    # Synthèse temps réel à l'initiateur (un changement d'avis met à jour son DM)
+    try:
+        from app.services.synthesis import update_initiator_synthesis
+        await update_initiator_synthesis(str(proposal.event_id), db)
+    except Exception:
+        pass
 
     # Retourner l'event_id pour le DM récapitulatif
     return {"ok": True, "event_id": str(proposal.event_id), "proposal_id": str(proposal.id)}

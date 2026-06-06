@@ -27,68 +27,65 @@ MINI_APP_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Okeder — Preferences</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--tg-theme-bg-color, #0f172a);
-      color: var(--tg-theme-text-color, #f1f5f9);
-      padding: 16px 16px 32px;
-      min-height: 100vh;
+    *{{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}}
+    body{{
+      font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:#FFFFFF;color:#0B0B0C;padding:24px 18px 40px;min-height:100vh;
+      max-width:460px;margin:0 auto;-webkit-font-smoothing:antialiased;
     }}
-    h1 {{ font-size: 20px; font-weight: 700; margin-bottom: 4px; }}
-    .subtitle {{ font-size: 13px; color: var(--tg-theme-hint-color, #94a3b8); margin-bottom: 24px; }}
-    .section {{ margin-bottom: 20px; }}
-    .section-label {{
-      display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-      color: var(--tg-theme-hint-color, #64748b); text-transform: uppercase; margin-bottom: 10px;
+    h1{{font-size:25px;font-weight:800;letter-spacing:-.03em;}}
+    .subtitle{{font-size:14px;color:#6B7280;margin-top:6px;margin-bottom:26px;}}
+    .section{{margin-bottom:22px;}}
+    .section-label{{
+      display:block;font-size:12px;font-weight:700;letter-spacing:.1em;
+      color:#6B7280;text-transform:uppercase;margin-bottom:11px;
     }}
-    .required {{ color: #f43f5e; margin-left: 2px; }}
+    .required{{color:#FF4D2E;margin-left:2px;}}
     /* Chips */
-    .chips {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .chip {{
-      padding: 8px 14px; border-radius: 20px; font-size: 14px; cursor: pointer;
-      border: 1.5px solid rgba(255,255,255,0.12);
-      background: var(--tg-theme-secondary-bg-color, #1e293b);
-      color: var(--tg-theme-text-color, #f1f5f9);
-      transition: all 0.15s; user-select: none; -webkit-tap-highlight-color: transparent;
+    .chips{{display:flex;flex-wrap:wrap;gap:9px;}}
+    .chip{{
+      padding:11px 16px;border-radius:999px;font-size:14.5px;font-weight:600;cursor:pointer;
+      border:1.5px solid #ECECEC;background:#fff;color:#0B0B0C;
+      transition:all .13s;user-select:none;
     }}
-    .chip.selected {{ background: #6366f1; border-color: #6366f1; color: white; }}
-    .chip.single.selected {{ background: #0ea5e9; border-color: #0ea5e9; }}
+    .chip:active{{transform:scale(.96);}}
+    .chip.selected{{background:#0B0B0C;border-color:#0B0B0C;color:#fff;}}
+    .chip.single.selected{{background:#FF4D2E;border-color:#FF4D2E;color:#fff;}}
     /* Input */
-    input, textarea {{
-      width: 100%; padding: 12px 14px; border-radius: 12px;
-      border: 1.5px solid rgba(255,255,255,0.1);
-      background: var(--tg-theme-secondary-bg-color, #1e293b);
-      color: var(--tg-theme-text-color, #f1f5f9);
-      font-size: 15px; outline: none; transition: border-color 0.15s;
+    input,textarea{{
+      width:100%;padding:14px 16px;border-radius:14px;border:1.5px solid #ECECEC;
+      background:#fff;color:#0B0B0C;font-size:16px;font-family:inherit;outline:none;
+      transition:border-color .15s,box-shadow .15s;
     }}
-    input:focus, textarea:focus {{ border-color: #6366f1; }}
-    .row {{ display: flex; gap: 10px; }}
-    .row input {{ flex: 1; }}
-    .hint {{ font-size: 12px; color: var(--tg-theme-hint-color, #64748b); margin-top: 6px; }}
-    /* Departure extra */
-    #departure-extra {{ display: none; margin-top: 10px; }}
+    input::placeholder,textarea::placeholder{{color:#9CA3AF;}}
+    input:focus,textarea:focus{{border-color:#FF4D2E;box-shadow:0 0 0 4px rgba(255,77,46,.12);}}
+    .row{{display:flex;gap:10px;}}
+    .row input{{flex:1;}}
+    .hint{{font-size:12.5px;color:#6B7280;margin-top:7px;}}
+    #departure-extra{{display:none;margin-top:10px;}}
     /* Submit */
-    .submit-btn {{
-      width: 100%; padding: 16px; border-radius: 14px; border: none;
-      background: var(--tg-theme-button-color, #6366f1);
-      color: var(--tg-theme-button-text-color, white);
-      font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px;
-      transition: opacity 0.15s; -webkit-tap-highlight-color: transparent;
+    .submit-btn{{
+      width:100%;padding:17px;border-radius:999px;border:none;background:#FF4D2E;color:#fff;
+      font-size:16.5px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:8px;
+      box-shadow:0 10px 26px -10px rgba(255,77,46,.6);
+      transition:transform .08s,background .15s,opacity .15s;
     }}
-    .submit-btn:active {{ opacity: 0.8; }}
-    .submit-btn:disabled {{ opacity: 0.4; }}
+    .submit-btn:active{{transform:scale(.98);background:#E63E1F;}}
+    .submit-btn:disabled{{opacity:.45;box-shadow:none;}}
     /* Success */
-    .success {{
-      display: none; flex-direction: column; align-items: center;
-      justify-content: center; min-height: 60vh; text-align: center; gap: 14px;
+    .success{{
+      display:none;flex-direction:column;align-items:center;
+      justify-content:center;min-height:60vh;text-align:center;gap:14px;
     }}
-    .success .icon {{ font-size: 60px; }}
-    .success h2 {{ font-size: 24px; font-weight: 700; }}
-    .success p {{ color: var(--tg-theme-hint-color, #94a3b8); font-size: 14px; line-height: 1.5; }}
+    .success .icon{{font-size:60px;}}
+    .success h2{{font-size:26px;font-weight:800;letter-spacing:-.02em;}}
+    .success p{{color:#6B7280;font-size:14px;line-height:1.5;}}
     /* Divider */
-    .divider {{ height: 1px; background: rgba(255,255,255,0.07); margin: 4px 0 20px; }}
+    .divider{{height:1px;background:#ECECEC;margin:6px 0 22px;}}
   </style>
 </head>
 <body>
@@ -160,9 +157,9 @@ MINI_APP_HTML = """<!DOCTYPE html>
           oninput="onDepartureInput(this.value)">
         <div id="departure-suggestions" style="
           display:none; position:absolute; top:100%; left:0; right:0; z-index:100;
-          background:var(--tg-theme-secondary-bg-color,#1e293b);
-          border:1.5px solid rgba(255,255,255,0.15); border-top:none; border-radius:0 0 12px 12px;
-          max-height:200px; overflow-y:auto;
+          background:#fff; box-shadow:0 12px 30px -8px rgba(0,0,0,.18);
+          border:1.5px solid #ECECEC; border-top:none; border-radius:0 0 14px 14px;
+          max-height:220px; overflow-y:auto;
         "></div>
       </div>
       <input type="hidden" id="departure-lat" value="">
@@ -211,11 +208,11 @@ MINI_APP_HTML = """<!DOCTYPE html>
     </div>
 
     <!-- NOM + EMAIL -->
-    <div class="section">
+    <div class="section" id="name-section">
       <span class="section-label">Ton prénom</span>
       <input type="text" id="display-name" placeholder="Prénom ou surnom">
     </div>
-    <div class="section">
+    <div class="section" id="contact-section">
       <span class="section-label">Email ou WhatsApp <span style="font-weight:400;text-transform:none">(pour recevoir la proposal)</span></span>
       <input type="email" id="notify-email" placeholder="ton@email.com" autocomplete="email" style="margin-bottom:10px">
       <input type="tel" id="notify-phone" placeholder="+44 7xxx xxx xxx (WhatsApp)" autocomplete="tel">
@@ -225,6 +222,17 @@ MINI_APP_HTML = """<!DOCTYPE html>
     <button class="submit-btn" id="submit-btn" onclick="submitPrefs()">
       Envoyer mes préférences
     </button>
+    <button type="button" id="decline-btn" onclick="declineInvite()"
+      style="width:100%;margin-top:14px;background:none;border:none;color:#9CA3AF;
+             font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">
+      I can't make it — count me out
+    </button>
+  </div>
+
+  <div class="success" id="declined-view">
+    <div class="icon">👋</div>
+    <h2>No worries!</h2>
+    <p style="margin-bottom:16px">We've let the organiser know you can't make it this time.</p>
   </div>
 
   <div class="success" id="success-view">
@@ -232,13 +240,13 @@ MINI_APP_HTML = """<!DOCTYPE html>
     <h2>Done!</h2>
     <p style="margin-bottom:16px">Your preferences have been saved.</p>
     <div id="result-link-box" style="display:none;
-      background:rgba(99,102,241,0.15);border:1px solid #6366f1;
-      border-radius:12px;padding:14px;margin-bottom:12px;text-align:left">
-      <p style="font-size:13px;color:#a5b4fc;margin-bottom:8px">
+      background:#FFF1ED;border:1px solid rgba(255,77,46,0.25);
+      border-radius:14px;padding:14px;margin-bottom:12px;text-align:left">
+      <p style="font-size:13px;color:#9A3412;font-weight:600;margin-bottom:8px">
         📌 Bookmark this link to see the proposal when it's ready:
       </p>
       <a id="result-link-url" href="#" target="_blank"
-         style="font-size:12px;color:#6366f1;word-break:break-all"></a>
+         style="font-size:12px;color:#FF4D2E;font-weight:600;word-break:break-all"></a>
     </div>
     <p style="font-size:13px;color:var(--tg-theme-hint-color,#64748b)">
       You'll be notified when the proposal is ready.
@@ -253,14 +261,40 @@ MINI_APP_HTML = """<!DOCTYPE html>
     const EVENT_ID = "{event_id}";
     const BACKEND_URL = "{backend_url}";
     // next_url : page vers laquelle rediriger après soumission (optionnel)
-    const NEXT_URL = new URLSearchParams(window.location.search).get('next') || "";
+    const PARAMS = new URLSearchParams(window.location.search);
+    const NEXT_URL = PARAMS.get('next') || "";
+    // Organisateur web pré-identifié depuis /create (compte connecté)
+    const PRESET_MID = PARAMS.get('mid') || "";
+    const PRESET_NAME = PARAMS.get('name') || "";
 
     // Sélections courantes
     const selected = {{ vibe: new Set(), activity: new Set(), times: new Set() }};
     const singleSelected = {{ departure: null, travel: null, margin: '5' }};
 
     // ─── Préremplissage au chargement ────────────────────────────────────────
+    // Contexte : lancé depuis Telegram (initData présent) -> identité connue,
+    // donc pas besoin de mail/téléphone. Depuis le web -> on les demande.
+    const IS_TELEGRAM = !!tg.initData;
+
     window.addEventListener('load', async () => {{
+      // 0. Masquer les champs de contact dans Telegram (identité déjà connue)
+      if (IS_TELEGRAM) {{
+        const cs = document.getElementById('contact-section');
+        if (cs) cs.style.display = 'none';
+      }}
+
+      // 0b. Organisateur web pré-identifié (depuis /create) : nom + contact déjà connus
+      if (PRESET_MID) {{
+        const cs = document.getElementById('contact-section');
+        if (cs) cs.style.display = 'none';
+      }}
+      if (PRESET_NAME) {{
+        const nf = document.getElementById('display-name');
+        if (nf) nf.value = PRESET_NAME;
+        const ns = document.getElementById('name-section');
+        if (ns) ns.style.display = 'none';
+      }}
+
       // 1. Prénom depuis Telegram
       const user = tg.initDataUnsafe?.user;
       if (user?.first_name) {{
@@ -444,8 +478,8 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
             const item = document.createElement('div');
             item.textContent = label;
-            item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.07);line-height:1.4;';
-            item.addEventListener('mouseover', () => item.style.background = 'rgba(99,102,241,0.15)');
+            item.style.cssText = 'padding:11px 14px;cursor:pointer;font-size:13.5px;border-bottom:1px solid #F1F1F1;line-height:1.4;';
+            item.addEventListener('mouseover', () => item.style.background = '#F7F7F8');
             item.addEventListener('mouseout', () => item.style.background = '');
             item.addEventListener('mousedown', () => {{
               document.getElementById('departure-text').value = label;
@@ -507,6 +541,7 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
       const body = {{
         init_data:        tg.initData || "",
+        member_id:        PRESET_MID || (localStorage.getItem('okeder_member_' + EVENT_ID) || null),
         display_name:     name,
         notify_email:     document.getElementById('notify-email').value.trim() || null,
         notify_phone:     document.getElementById('notify-phone').value.trim() || null,
@@ -544,6 +579,10 @@ MINI_APP_HTML = """<!DOCTYPE html>
 
         if (res.ok) {{
           const data = await res.json().catch(() => ({{}}));
+          // Lier ce navigateur au membre pour les engagements web (/result)
+          if (data.member_id) {{
+            try {{ localStorage.setItem('okeder_member_' + EVENT_ID, data.member_id); }} catch(e) {{}}
+          }}
           document.getElementById('form-view').style.display = 'none';
           const sv = document.getElementById('success-view');
           sv.style.display = 'flex';
@@ -577,6 +616,40 @@ MINI_APP_HTML = """<!DOCTYPE html>
         alert('Erreur réseau. Réessaie.');
       }}
     }}
+
+    async function declineInvite() {{
+      if (!confirm("Tell the organiser you can't make it this time?")) return;
+      const btn = document.getElementById('decline-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {{
+        const res = await fetch(BACKEND_URL + '/mini-app/decline', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }},
+          body: JSON.stringify({{
+            init_data:    tg.initData || "",
+            event_id:     EVENT_ID,
+            member_id:    PRESET_MID || (localStorage.getItem('okeder_member_' + EVENT_ID) || null),
+            display_name: document.getElementById('display-name').value.trim() || null,
+          }}),
+        }});
+        if (res.ok) {{
+          document.getElementById('form-view').style.display = 'none';
+          document.getElementById('declined-view').style.display = 'flex';
+          const redirectTo = NEXT_URL;
+          if (redirectTo) setTimeout(() => window.location.href = redirectTo, 2000);
+          else if (tg.initData) setTimeout(() => tg.close(), 2500);
+        }} else {{
+          btn.disabled = false;
+          btn.textContent = "I can't make it — count me out";
+          alert('Could not record. Please try again.');
+        }}
+      }} catch(e) {{
+        btn.disabled = false;
+        btn.textContent = "I can't make it — count me out";
+        alert('Network error. Please try again.');
+      }}
+    }}
   </script>
 </body>
 </html>"""
@@ -586,7 +659,32 @@ MINI_APP_HTML = """<!DOCTYPE html>
 async def serve_mini_app(event_id: str):
     public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000")
     html = MINI_APP_HTML.format(event_id=event_id, backend_url=public_url)
-    return HTMLResponse(content=html)
+    return HTMLResponse(
+        content=html,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
+async def _ensure_group_membership(db: AsyncSession, event_id_str: str, member_id) -> None:
+    """Ajoute le membre au groupe de l'event s'il n'y est pas déjà (best-effort)."""
+    from app.models.event import Event
+    from app.models.group import GroupMembership
+    try:
+        event_uuid = uuid.UUID(event_id_str)
+    except ValueError:
+        return
+    ev = await db.execute(select(Event).where(Event.id == event_uuid))
+    event = ev.scalar_one_or_none()
+    if not event:
+        return
+    exists = await db.execute(
+        select(GroupMembership).where(
+            GroupMembership.group_id == event.group_id,
+            GroupMembership.member_id == member_id,
+        )
+    )
+    if not exists.scalar_one_or_none():
+        db.add(GroupMembership(group_id=event.group_id, member_id=member_id, role="member"))
 
 
 def _validate_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
@@ -617,16 +715,20 @@ async def submit_mini_app_preferences(
     body = await request.json()
     init_data    = body.get("init_data", "")
     event_id_str = body.get("event_id", "")
-    display_name = body.get("display_name", "").strip() or "Anonymous"
-    notify_email = body.get("notify_email", "").strip() or None
-    notify_phone = body.get("notify_phone", "").strip() or None
+    member_id_in = (body.get("member_id") or "").strip() or None
+    # NB : .get(k, "") renvoie None si la clé existe avec la valeur JSON null
+    # (champs vides envoyés en null par le formulaire) -> sécuriser avec `or ""`.
+    display_name = (body.get("display_name") or "").strip() or "Anonymous"
+    notify_email = (body.get("notify_email") or "").strip() or None
+    notify_phone = (body.get("notify_phone") or "").strip() or None
 
     # Identification via Telegram initData ou fallback nom
     user_data = _validate_telegram_init_data(init_data, settings.telegram_bot_token) if init_data else None
 
+    member = None
     if user_data:
         tg_user_id = user_data.get("id")
-        tg_name = (user_data.get("first_name", "") + " " + user_data.get("last_name", "")).strip()
+        tg_name = ((user_data.get("first_name") or "") + " " + (user_data.get("last_name") or "")).strip()
         result = await db.execute(select(Member).where(Member.telegram_user_id == tg_user_id))
         member = result.scalar_one_or_none()
         if not member:
@@ -642,14 +744,33 @@ async def submit_mini_app_preferences(
                 member.phone = notify_phone
                 member.whatsapp_notify = True
     else:
-        member = Member(
-            display_name=display_name,
-            email=notify_email,
-            phone=notify_phone,
-            whatsapp_notify=bool(notify_phone),
-        )
-        db.add(member)
-        await db.flush()
+        # Web : réutiliser le membre connu (organisateur connecté ou invité déjà créé)
+        if member_id_in:
+            try:
+                m_res = await db.execute(select(Member).where(Member.id == uuid.UUID(member_id_in)))
+                member = m_res.scalar_one_or_none()
+            except ValueError:
+                member = None
+            if member:
+                if display_name and display_name != "Anonymous":
+                    member.display_name = display_name
+                if notify_email:
+                    member.email = notify_email
+                if notify_phone:
+                    member.phone = notify_phone
+                    member.whatsapp_notify = True
+        if not member:
+            member = Member(
+                display_name=display_name,
+                email=notify_email,
+                phone=notify_phone,
+                whatsapp_notify=bool(notify_phone),
+            )
+            db.add(member)
+            await db.flush()
+
+    # S'assurer que le membre appartient bien au groupe de l'event (web sans Telegram)
+    await _ensure_group_membership(db, event_id_str, member.id)
 
     event_uuid = uuid.UUID(event_id_str)
 
@@ -714,9 +835,96 @@ async def submit_mini_app_preferences(
         import logging
         logging.getLogger(__name__).warning(f"check_and_trigger_engine: {e}")
 
+    try:
+        from app.services.synthesis import update_initiator_synthesis
+        await update_initiator_synthesis(event_id_str, db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"synthesis (submit): {e}")
+
     # Si next_url fourni dans le body → renvoyer l'URL de redirection
+    # member_id : permet au navigateur de lier ses engagements ultérieurs (/result)
     next_url = body.get("next_url")
-    return {"ok": True, "next_url": next_url}
+    return {"ok": True, "next_url": next_url, "member_id": str(member.id)}
+
+
+@router.post("/mini-app/decline")
+async def decline_invite(request: Request, db: AsyncSession = Depends(get_db)):
+    """Le membre décline l'invitation (choix explicite, pas de préférences)."""
+    from datetime import datetime, timezone
+
+    from app.models.member import Member
+    from app.models.preference import Preference
+
+    body = await request.json()
+    init_data    = body.get("init_data", "")
+    event_id_str = body.get("event_id", "")
+    member_id_in = (body.get("member_id") or "").strip() or None
+    display_name = (body.get("display_name") or "").strip() or "Guest"
+
+    try:
+        event_uuid = uuid.UUID(event_id_str)
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="invalid event")
+
+    user_data = _validate_telegram_init_data(init_data, settings.telegram_bot_token) if init_data else None
+
+    member = None
+    if user_data:
+        tg_user_id = user_data.get("id")
+        tg_name = ((user_data.get("first_name") or "") + " " + (user_data.get("last_name") or "")).strip()
+        res = await db.execute(select(Member).where(Member.telegram_user_id == tg_user_id))
+        member = res.scalar_one_or_none()
+        if not member:
+            member = Member(telegram_user_id=tg_user_id, display_name=tg_name or display_name)
+            db.add(member)
+            await db.flush()
+    elif member_id_in:
+        try:
+            res = await db.execute(select(Member).where(Member.id == uuid.UUID(member_id_in)))
+            member = res.scalar_one_or_none()
+        except ValueError:
+            member = None
+    if not member:
+        member = Member(display_name=display_name)
+        db.add(member)
+        await db.flush()
+
+    await _ensure_group_membership(db, event_id_str, member.id)
+
+    now = datetime.now(timezone.utc)
+    pref_result = await db.execute(
+        select(Preference).where(
+            Preference.event_id == event_uuid,
+            Preference.member_id == member.id,
+        )
+    )
+    pref = pref_result.scalar_one_or_none()
+    if pref:
+        pref.declined = True
+        pref.submitted_at = now
+    else:
+        db.add(Preference(event_id=event_uuid, member_id=member.id, declined=True, submitted_at=now))
+    await db.commit()
+
+    # Un refus peut faire atteindre le quorum aux autres → on revérifie
+    try:
+        from app.workers.jobs.collect_constraints import check_and_trigger_engine
+        await check_and_trigger_engine(event_id_str, db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"check_and_trigger_engine (decline): {e}")
+
+    # Mise à jour de la synthèse temps réel de l'initiateur (Telegram)
+    try:
+        from app.services.synthesis import update_initiator_synthesis
+        await update_initiator_synthesis(event_id_str, db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"synthesis (decline): {e}")
+
+    return {"ok": True, "member_id": str(member.id)}
 
 
 @router.post("/mini-app/{event_id}/prefill")

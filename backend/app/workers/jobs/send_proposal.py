@@ -43,6 +43,13 @@ async def send_proposal_to_group(ctx: dict, proposal_id: str) -> None:
         # Email + Push — toujours (PWA ou Telegram)
         await _notify_non_telegram(proposal, event, db)
 
+        # Synthèse initiateur : la proposition est publiée → afficher "who's coming"
+        try:
+            from app.services.synthesis import update_initiator_synthesis
+            await update_initiator_synthesis(str(event.id), db)
+        except Exception:
+            pass
+
 
 def _format_proposal_card(proposal) -> str:  # noqa: C901
     import urllib.parse as _ul

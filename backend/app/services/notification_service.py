@@ -52,6 +52,57 @@ async def send_telegram_message(
                 logger.warning(f"Telegram sendMessage failed after 5 attempts: {e}")
 
 
+def _tg_api(method: str, payload: dict) -> dict | None:
+    """Appel synchrone à l'API Telegram, retourne le JSON `result` ou None."""
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/{method}"
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            parsed = json.loads(resp.read().decode())
+            return parsed.get("result") if parsed.get("ok") else None
+    except urllib.error.HTTPError as e:
+        logger.warning("Telegram %s HTTP %s: %s", method, e.code, e.read().decode()[:200])
+        return None
+    except Exception as e:
+        logger.warning("Telegram %s failed: %s", method, e)
+        return None
+
+
+async def send_or_edit_telegram(
+    chat_id: int | str,
+    text: str,
+    message_id: int | None = None,
+) -> int | None:
+    """
+    Envoie un message Telegram, ou édite `message_id` s'il est fourni.
+    Retourne le message_id (nouveau ou existant) en cas de succès, sinon None.
+    Sert à maintenir UN message de synthèse édité en place pour l'initiateur.
+    """
+    if message_id:
+        payload = {
+            "chat_id": chat_id, "message_id": message_id,
+            "text": text, "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        result = await asyncio.to_thread(_tg_api, "editMessageText", payload)
+        if result is not None:
+            return message_id
+        # L'édition a échoué (message supprimé, contenu identique…) → on renvoie l'id existant
+        return message_id
+
+    payload = {
+        "chat_id": chat_id, "text": text, "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    result = await asyncio.to_thread(_tg_api, "sendMessage", payload)
+    if result and isinstance(result, dict):
+        return result.get("message_id")
+    return None
+
+
 async def send_whatsapp_message(phone: str, text: str) -> None:
     """
     Envoie un message WhatsApp free-text via Cloud API.

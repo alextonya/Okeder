@@ -79,3 +79,56 @@ async def send_proposal_email(
     except Exception as e:
         logger.warning("Email failed to %s: %s", to_email, e)
         return False
+
+
+async def _send_email(to_email: str, subject: str, html: str, text: str) -> bool:
+    """Helper bas niveau d'envoi SMTP (réutilisé par les emails transactionnels)."""
+    if not settings.smtp_user or not settings.smtp_password:
+        logger.info("SMTP non configuré — email skipped pour %s", to_email)
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = settings.email_from
+    msg["To"]      = to_email
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    def _send_sync():
+        import smtplib
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.smtp_user, settings.smtp_password)
+            server.sendmail(settings.email_from, to_email, msg.as_string())
+
+    try:
+        await asyncio.to_thread(_send_sync)
+        logger.info("Email sent to %s", to_email)
+        return True
+    except Exception as e:
+        logger.warning("Email failed to %s: %s", to_email, e)
+        return False
+
+
+async def send_otp_email(to_email: str, code: str) -> bool:
+    """Envoie le code OTP de connexion Okeder."""
+    subject = f"Your Okeder code: {code}"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family:-apple-system,'Segoe UI',sans-serif;background:#fff;color:#0B0B0C;padding:32px;margin:0">
+  <div style="max-width:420px;margin:0 auto">
+    <div style="font-weight:800;font-size:20px;margin-bottom:24px">● Okeder</div>
+    <p style="font-size:15px;color:#374151">Here is your sign-in code:</p>
+    <div style="font-size:38px;font-weight:800;letter-spacing:8px;margin:18px 0;
+                background:#FFF1ED;border:1px solid rgba(255,77,46,.25);border-radius:14px;
+                padding:18px;text-align:center;color:#E63E1F">{code}</div>
+    <p style="font-size:13px;color:#6B7280">This code expires in {settings.otp_ttl_minutes} minutes.
+       If you didn't request it, you can ignore this email.</p>
+  </div>
+</body>
+</html>"""
+    text = f"Your Okeder sign-in code is {code}. It expires in {settings.otp_ttl_minutes} minutes."
+    return await _send_email(to_email, subject, html, text)

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
+import ClientInit from "./ClientInit";
 
 export const metadata: Metadata = {
   title: "Okeder — Ok, Ordered!",
@@ -19,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className="bg-slate-950 text-slate-100 min-h-screen">{children}</body>
+        <body className="bg-slate-950 text-slate-100 min-h-screen"><ClientInit />{children}</body>
       </html>
     </ClerkProvider>
   );

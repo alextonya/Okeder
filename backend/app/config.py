@@ -20,8 +20,10 @@ class Settings(BaseSettings):
 
     # Stripe
     stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_platform_fee_pct: float = 0.05
+    deposit_default_cents: int = 1500
 
     # Eventbrite
     eventbrite_private_token: str = ""
@@ -52,6 +54,12 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_claims_email: str = "mailto:contact@okeder.app"
+
+    # Comptes PWA — session signée + OTP email
+    session_secret: str = "okeder-dev-session-secret-change-me"
+    session_ttl_days: int = 30
+    otp_ttl_minutes: int = 10
+    otp_max_attempts: int = 5
 
     @property
     def is_dev(self) -> bool:

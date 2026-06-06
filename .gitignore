@@ -30,3 +30,12 @@ out/
 *.pem
 *.key
 secrets/
+infra/env/*.env
+
+# Dev / build artefacts à ne jamais committer
+*.exe
+tunnels.json
+bp_text.txt
+tunnel.py
+tunnel_run.py
+start_ngrok.py

@@ -8,6 +8,7 @@ from app.database import engine
 from app.models import *  # noqa: F401, F403 — imports all models for Alembic
 from app.routers import (
     auth,
+    auth_pwa,
     commitments,
     events,
     groups,
@@ -63,6 +64,7 @@ app.include_router(miniapp.router, tags=["miniapp"])
 app.include_router(pwa.router, tags=["pwa"])
 app.include_router(sw_route.router, tags=["sw"])
 app.include_router(home.router, tags=["home"])
+app.include_router(auth_pwa.router, tags=["auth_pwa"])
 
 
 @app.get("/health")

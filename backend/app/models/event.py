@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,3 +36,6 @@ class Event(UUIDMixin, TimestampMixin, Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("members.id"), nullable=True
     )
+    # Synthèse temps réel en DM à l'initiateur (Telegram) — message édité en place
+    initiator_summary_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    initiator_summary_msg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

@@ -138,7 +138,7 @@ async def _check_and_trigger_engine_inner(event_id: str, db) -> None:
     if total == 0:
         return
 
-    # ─── 3. Compter les soumissions ───────────────────────────────────────────
+    # ─── 3. Compter les soumissions et les refus ──────────────────────────────
     prefs_result = await db.execute(
         select(Preference).where(
             Preference.event_id == uuid.UUID(event_id),
@@ -148,10 +148,21 @@ async def _check_and_trigger_engine_inner(event_id: str, db) -> None:
     )
     submitted = len(prefs_result.scalars().all())
 
+    declined_result = await db.execute(
+        select(Preference).where(
+            Preference.event_id == uuid.UUID(event_id),
+            Preference.declined == True,  # noqa: E712
+        )
+    )
+    declined = len(declined_result.scalars().all())
+
+    # Un refus est un choix valide : il sort du dénominateur (ne bloque pas le quorum)
+    effective_total = max(1, total - declined)
+
     # ─── 4. Calculer le seuil courant ─────────────────────────────────────────
     # Seuils : 60, 70, 80, 90, 100
     THRESHOLDS = [0.6, 0.7, 0.8, 0.9, 1.0]
-    ratio = submitted / total
+    ratio = submitted / effective_total
 
     # Trouver le plus haut seuil atteint
     current_level = None

@@ -2,12 +2,19 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 async function getEvents(token: string) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/events`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const base = process.env.BACKEND_INTERNAL_URL
+      ? `${process.env.BACKEND_INTERNAL_URL}/v1`
+      : process.env.NEXT_PUBLIC_API_BASE_URL;
+    const res = await fetch(`${base}/events`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
 }
 
 export default async function Dashboard() {

@@ -9,6 +9,9 @@ from app.models.member import Member
 
 async def verify_clerk_token(token: str) -> str | None:
     """Vérifie le JWT Clerk et retourne le clerk_user_id."""
+    # Dev bypass : token factice émis par le mock Clerk du PWA (auth désactivée en dev)
+    if settings.is_dev and token == "dev-token":
+        return "dev_user_okeder"
     try:
         import httpx
         from jose import jwt

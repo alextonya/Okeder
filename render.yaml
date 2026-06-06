@@ -1,0 +1,90 @@
+# Render Blueprint — Okeder
+# Déploie : backend (web) + worker (arq) + bot (Telegram polling).
+# DB = Supabase, Redis = Upstash (déjà cloud). Domaine okeder.com pointé sur le web service.
+# Secrets (sync:false / generateValue) à renseigner dans le dashboard Render, JAMAIS dans Git.
+
+envVarGroups:
+  - name: okeder-shared
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PUBLIC_URL
+        value: https://okeder.com
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        value: OkederBot
+      - key: FOURSQUARE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_CLAIMS_EMAIL
+        value: mailto:contact@okeder.app
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: DEPOSIT_DEFAULT_CENTS
+        value: "1500"
+      - key: SESSION_SECRET
+        generateValue: true   # Render génère un secret fort (remplace le défaut dev)
+
+services:
+  # ── Backend FastAPI (sert l'API + la PWA + la mini-app) ──────────────────────
+  - type: web
+    name: okeder-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: starter            # 'free' possible (mais cold start) ; 'starter' = toujours chaud (~7$/mo)
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - fromGroup: okeder-shared
+
+  # ── Worker arq (DMs, moteur de décision, envoi de proposition, booking) ──────
+  - type: worker
+    name: okeder-worker
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: starter            # les background workers ne sont pas gratuits sur Render
+    dockerCommand: arq app.workers.arq_settings.WorkerSettings
+    autoDeploy: true
+    envVars:
+      - fromGroup: okeder-shared
+
+  # ── Bot Telegram (polling) ───────────────────────────────────────────────────
+  - type: worker
+    name: okeder-bot
+    runtime: docker
+    dockerfilePath: bot/Dockerfile
+    dockerContext: bot
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - fromGroup: okeder-shared
+      - key: BACKEND_API_URL
+        value: https://okeder.com/v1
+      - key: TELEGRAM_USE_POLLING
+        value: "true"
