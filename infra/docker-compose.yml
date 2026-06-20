@@ -31,6 +31,7 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
@@ -48,6 +49,7 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+    restart: unless-stopped   # Upstash free coupe les connexions idle → arq peut crasher
     env_file:
       - ../infra/env/backend.env
     depends_on:
@@ -63,6 +65,7 @@ services:
     build:
       context: ../bot
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file:
       - ../infra/env/bot.env
     depends_on:
@@ -70,6 +73,14 @@ services:
     volumes:
       - ../bot:/app
     command: python bot/main.py
+
+  booking-agent:
+    build:
+      context: ../booking-agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
 
   web:
     build:

@@ -20,6 +20,11 @@ async def upsert_commitment(
     current_member: Member = Depends(get_current_member),
 ):
     level = body.get("level", CommitmentLevel.SOFT)
+    if level not in (CommitmentLevel.SOFT, CommitmentLevel.CONFIRMED, CommitmentLevel.HARD):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="level must be one of: soft, confirmed, hard",
+        )
     result = await db.execute(
         select(Commitment).where(
             Commitment.proposal_id == proposal_id, Commitment.member_id == current_member.id

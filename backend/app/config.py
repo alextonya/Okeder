@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # Google Maps / Places — Reservation Resolver (lien profond exact "Reserve").
+    # Vide = Resolver dégradé (cascade en filet). Clé "AIza..." → liens exacts.
+    google_maps_api_key: str = ""
+
+    # Concierge — agent IA de réservation (navigateur). OFF par défaut : nécessite
+    # une infra navigateur (Playwright). Toujours divulgué, jamais l'unique voie.
+    enable_ai_booking_agent: bool = False
+    booking_agent_url: str = "http://booking-agent:8080"
+
     # Foursquare Places API (gratuit, 1000 req/jour)
     foursquare_api_key: str = ""
 

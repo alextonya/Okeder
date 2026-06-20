@@ -9,6 +9,7 @@ from app.models.otp_code import OtpCode
 from app.models.preference import Preference
 from app.models.proposal import Proposal
 from app.models.push_subscription import PushSubscription
+from app.models.rating import Rating
 
 __all__ = [
     "BehavioralProfile",
@@ -23,4 +24,5 @@ __all__ = [
     "Preference",
     "Proposal",
     "PushSubscription",
+    "Rating",
 ]

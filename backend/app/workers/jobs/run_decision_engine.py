@@ -47,7 +47,7 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         # ─── 2. Lancer le constraint engine ──────────────────────────────────
         spec = run_engine(preferences)
 
-        # ─── 3. Rechercher un venue via Eventbrite ────────────────────────────
+        # ─── 3. Rechercher un venue (Overpass, centré sur les membres) ────────
         # Priorité : event.location (saisi manuellement) > spec.location_hint (issu des prefs)
         location = event.location or spec.location_hint or "London"
         # Rayon : travel_time_max / 6 → ~5 km pour 30 min (vitesse piéton ~3 km/h + transports)
@@ -95,6 +95,27 @@ async def run_decision_engine(ctx: dict, event_id: str) -> None:
         spec.legitimacy_json["venue_lng"] = venue_data.get("lng") or venue_lng
         spec.legitimacy_json["distances"] = distances_info
         spec.legitimacy_json["vibe_proposed"] = spec.vibe
+        # Concierge : infos de réservabilité du lieu (tél/site/email/whatsapp/thefork)
+        spec.legitimacy_json["venue_contact"] = venue_data.get("contact") or {}
+
+        # Resolver : identité de réservation + lien profond exact (cache sur la proposition)
+        try:
+            from app.services.reservation_resolver import resolve as resolve_reservation
+            prefill = {
+                "date_iso": spec.legitimacy_json.get("proposed_date_iso"),
+                "hour": spec.legitimacy_json.get("proposed_hour"),
+                "party": len(preferences),
+            }
+            spec.legitimacy_json["reservation"] = await resolve_reservation(
+                venue_data.get("venue_name") or "",
+                venue_data.get("venue_address") or "",
+                venue_data.get("lat"),
+                venue_data.get("lng"),
+                venue_data.get("contact") or {},
+                prefill,
+            )
+        except Exception:
+            pass
 
         # ─── 5. Créer la proposal en DB ───────────────────────────────────────
         version_result = await db.execute(
@@ -166,7 +187,8 @@ async def _search_venue(
     preferences: list | None = None,
 ) -> dict:
     """
-    Recherche un venue : Foursquare en priorité, Eventbrite en fallback.
+    Recherche un venue : OpenStreetMap Overpass en priorité, Eventbrite en fallback.
+    Centre de recherche ancré sur les coordonnées des membres (anti-dérive géographique).
     Retourne un dict normalisé ou {} si aucun résultat.
     """
     import logging
@@ -174,15 +196,52 @@ async def _search_venue(
 
     radius_m = max(500, radius_km * 1000)
 
-    # ─── OpenStreetMap Overpass (gratuit, sans clé, fiable) ──────────────────
-    # Foursquare supprimé — API renvoie 410 Gone
-    # Si pas de coordonnées GPS → geocoder la zone texte
-    if not (midpoint_lat and midpoint_lng) and location:
-        midpoint_lat, midpoint_lng = await _geocode(location, log)
-        if midpoint_lat:
-            log.info("Geocoded '%s' -> %.4f,%.4f", location, midpoint_lat, midpoint_lng)
-        else:
-            log.warning("Geocoding failed for '%s' — no venue search possible", location)
+    # ─── Centroïde des membres = ancre géographique ──────────────────────────
+    # GPS si fourni, sinon géocodage du texte d'adresse (biaisé par le midpoint
+    # connu pour éviter les homonymes dans d'autres pays).
+    member_coords: list[tuple[float, float]] = []
+    for p in (preferences or []):
+        raw = p.get("raw_answers") or {}
+        m_lat = raw.get("departure_lat")
+        m_lng = raw.get("departure_lng")
+        if m_lat and m_lng:
+            try:
+                member_coords.append((float(m_lat), float(m_lng)))
+                continue
+            except (ValueError, TypeError):
+                pass
+        if raw.get("departure_text"):
+            g_lat, g_lng = await _geocode(raw["departure_text"], log, midpoint_lat, midpoint_lng)
+            if g_lat and g_lng:
+                member_coords.append((g_lat, g_lng))
+                log.info("Geocoded member '%s' -> %.4f,%.4f", raw.get("departure_text"), g_lat, g_lng)
+
+    anchor_lat = anchor_lng = None
+    if member_coords:
+        anchor_lat = sum(c[0] for c in member_coords) / len(member_coords)
+        anchor_lng = sum(c[1] for c in member_coords) / len(member_coords)
+
+    # ─── Centre de recherche : midpoint (engine) > centroïde membres > zone texte ─
+    # OpenStreetMap Overpass (gratuit, sans clé). Foursquare supprimé (410 Gone).
+    if not (midpoint_lat and midpoint_lng):
+        if anchor_lat is not None:
+            midpoint_lat, midpoint_lng = anchor_lat, anchor_lng
+        elif location:
+            midpoint_lat, midpoint_lng = await _geocode(location, log)
+            if midpoint_lat:
+                log.info("Geocoded '%s' -> %.4f,%.4f", location, midpoint_lat, midpoint_lng)
+            else:
+                log.warning("Geocoding failed for '%s' — no venue search possible", location)
+
+    # Garde-fou : centre >200 km des membres → le géocodage a dérivé (mauvais
+    # pays). On recentre sur les membres (la vérité terrain).
+    if anchor_lat is not None and midpoint_lat and midpoint_lng:
+        if _haversine(anchor_lat, anchor_lng, midpoint_lat, midpoint_lng) > 200:
+            log.warning(
+                "Search center %.4f,%.4f is >200km from members — recentering on members",
+                midpoint_lat, midpoint_lng,
+            )
+            midpoint_lat, midpoint_lng = anchor_lat, anchor_lng
 
     if midpoint_lat and midpoint_lng:
         try:
@@ -195,25 +254,9 @@ async def _search_venue(
                 activity=activity,
                 vibe=vibe,
             )
-            # Coordonnées membres : GPS si dispo, sinon géocoder le texte
-            member_coords = []
-            for p in preferences:
-                raw = p.get("raw_answers") or {}
-                m_lat = raw.get("departure_lat")
-                m_lng = raw.get("departure_lng")
-                if m_lat and m_lng:
-                    try:
-                        member_coords.append((float(m_lat), float(m_lng)))
-                    except (ValueError, TypeError):
-                        pass
-                elif raw.get("departure_text"):
-                    g_lat, g_lng = await _geocode(raw["departure_text"], log)
-                    if g_lat and g_lng:
-                        member_coords.append((g_lat, g_lng))
-                        log.info("Geocoded member '%s' -> %.4f,%.4f", raw.get("departure_text"), g_lat, g_lng)
             # Collecter les hard constraints de tous les membres
             all_hard = []
-            for p in preferences:
+            for p in (preferences or []):
                 all_hard.extend(p.get("hard_constraints") or [])
 
             venue = osm_pick(
@@ -230,10 +273,21 @@ async def _search_venue(
                 v_lat   = venue.get("lat")
                 v_lng   = venue.get("lng")
 
+                # Garde-fou final : lieu trop loin des membres → rejet (erreur géocodage)
+                if anchor_lat is not None and v_lat and v_lng:
+                    d = _haversine(anchor_lat, anchor_lng, float(v_lat), float(v_lng))
+                    max_km = max(60.0, radius_m / 1000 * 4)
+                    if d > max_km:
+                        log.warning(
+                            "Venue '%s' is %.0fkm from members (>%.0f) — rejecting (geocode error?)",
+                            name, d, max_km,
+                        )
+                        name = ""
+
                 log.info("Selected venue: '%s' | '%s' | lat=%s lng=%s", name, address, v_lat, v_lng)
 
                 if not name:
-                    log.warning("Venue has no name — skipping")
+                    log.warning("Venue rejected or unnamed — skipping")
                 else:
                     category = venue.get("category", "")
                     title = name + (" — " + category if category else "")
@@ -245,6 +299,7 @@ async def _search_venue(
                         "price_cents":   None,
                         "lat":           v_lat,
                         "lng":           v_lng,
+                        "contact":       venue.get("contact") or {},
                     }
             else:
                 log.warning("Overpass returned %d venues but scoring eliminated all", len(venues))
@@ -293,11 +348,20 @@ async def _search_venue(
     return {}
 
 
-async def _geocode(location: str, log) -> tuple[float | None, float | None]:
+async def _geocode(
+    location: str, log,
+    ref_lat: float | None = None, ref_lng: float | None = None,
+) -> tuple[float | None, float | None]:
     """
     Convertit un texte de zone en coordonnées GPS.
-    1. Photon (komoot) — HTTP, pas de TLS
-    2. Villes connues — fallback hardcodé
+    1. Villes connues — fallback hardcodé instantané
+    2. Photon (komoot) — HTTP, pas de TLS
+    3. Nominatim — fallback
+
+    ref_lat/ref_lng : point de référence (centroïde des membres) servant de BIAIS de
+    proximité — un même nom de rue existe dans plusieurs pays, sans biais on tombe
+    parfois sur la mauvaise (ex. membres à Paris → restaurant en Italie). Le biais
+    privilégie le résultat le plus proche des membres.
     """
     import json as _j
     import urllib.parse as _up
@@ -320,30 +384,57 @@ async def _geocode(location: str, log) -> tuple[float | None, float | None]:
         if key in loc_lower:
             return coords
 
-    # Photon (komoot) — utilise HTTP interne, plus robuste sur Python 3.14
+    has_ref = ref_lat is not None and ref_lng is not None
+
+    # Photon (komoot) — utilise HTTP interne, plus robuste sur Python 3.14.
+    # Avec un point de référence, on récupère plusieurs candidats et on garde le
+    # plus proche ; sinon on prend le meilleur match (limit=1).
     try:
-        q = _up.urlencode({"q": location, "limit": "1"})
-        url = "https://photon.komoot.io/api/?" + q
+        params = {"q": location, "limit": "10" if has_ref else "1"}
+        if has_ref:
+            params["lat"] = str(ref_lat)   # biais de proximité natif Photon
+            params["lon"] = str(ref_lng)
+        url = "https://photon.komoot.io/api/?" + _up.urlencode(params)
         req = _ur.Request(url, headers={"User-Agent": "Okeder/1.0"})
         with _ur.urlopen(req, timeout=8) as r:
             data = _j.loads(r.read().decode())
         features = data.get("features", [])
         if features:
-            coords = features[0]["geometry"]["coordinates"]
-            return float(coords[1]), float(coords[0])  # [lng, lat] → (lat, lng)
+            if has_ref:
+                best = min(
+                    features,
+                    key=lambda f: _haversine(
+                        ref_lat, ref_lng,
+                        float(f["geometry"]["coordinates"][1]),
+                        float(f["geometry"]["coordinates"][0]),
+                    ),
+                )
+                c = best["geometry"]["coordinates"]
+            else:
+                c = features[0]["geometry"]["coordinates"]
+            return float(c[1]), float(c[0])  # [lng, lat] → (lat, lng)
     except Exception as e:
         log.warning("Photon geocoding failed: %s", e)
 
-    # Nominatim fallback
+    # Nominatim fallback (biais via viewbox autour du point de référence)
     try:
-        q = _up.urlencode({"q": location, "format": "json", "limit": "1"})
+        params = {"q": location, "format": "json", "limit": "5" if has_ref else "1"}
+        if has_ref:
+            # viewbox ~±1.5° (~150 km) autour du référent, sans 'bounded' (souple)
+            params["viewbox"] = f"{ref_lng - 1.5},{ref_lat + 1.5},{ref_lng + 1.5},{ref_lat - 1.5}"
         req = _ur.Request(
-            "https://nominatim.openstreetmap.org/search?" + q,
+            "https://nominatim.openstreetmap.org/search?" + _up.urlencode(params),
             headers={"User-Agent": "Okeder/1.0"},
         )
         with _ur.urlopen(req, timeout=8) as r:
             results = _j.loads(r.read().decode())
         if results:
+            if has_ref:
+                best = min(
+                    results,
+                    key=lambda x: _haversine(ref_lat, ref_lng, float(x["lat"]), float(x["lon"])),
+                )
+                return float(best["lat"]), float(best["lon"])
             return float(results[0]["lat"]), float(results[0]["lon"])
     except Exception as e:
         log.warning("Nominatim geocoding failed: %s", e)

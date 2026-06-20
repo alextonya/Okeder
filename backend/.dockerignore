@@ -1,0 +1,19 @@
+# Environnements virtuels (jamais dans l'image — installés via uv/pip au build)
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.pyc
+
+# Outils / artefacts de dev
+*.log
+*.exe
+cloudflared.exe
+tunnel*.py
+start_ngrok.py
+tunnels.json
+.pytest_cache/
+
+# Secrets / env locaux (les valeurs prod viennent des env vars Render)
+.env
+.env.*

@@ -3,10 +3,11 @@ OpenStreetMap Overpass API — recherche de venues sans clé API.
 Scoring multicritères pour sélectionner le meilleur lieu.
 
 Score(venue) =
-  0.40 x distance_score   (minimise distance moyenne membres -> venue)
-  0.25 x type_match       (vibe/activite correspond a la categorie OSM ?)
-  0.20 x completeness     (adresse complete, nom propre, coordonnees)
-  0.15 x fairness_score   (minimise l'inegalite entre membres)
+  0.35 x distance_score   (minimise distance moyenne membres -> venue)
+  0.22 x type_match       (vibe/activite correspond a la categorie OSM ?)
+  0.13 x completeness     (adresse complete, nom propre, coordonnees)
+  0.12 x fairness_score   (minimise l'inegalite entre membres)
+  0.18 x bookability      (lieu facile a reserver : thefork/tel/whatsapp/email)
   x hard_constraint_penalty (0 si hard constraint viole -> elimine)
 """
 import asyncio
@@ -70,6 +71,51 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
+def extract_contact(tags: dict) -> dict:
+    """Extrait les infos de réservabilité depuis les balises OSM d'un lieu.
+
+    OSM expose souvent phone / website / email / contact:whatsapp / reservation /
+    opening_hours. C'est ce qui permet à Okeder de savoir COMMENT réserver chaque
+    lieu (cf. Okeder Concierge — la réservabilité pilote la sélection + la cascade).
+    """
+    def first(*keys):
+        for k in keys:
+            v = tags.get(k)
+            if v and str(v).strip():
+                return str(v).strip()
+        return ""
+
+    website = first("website", "contact:website", "url")
+    wl = website.lower()
+    book_url = website if any(p in wl for p in ("thefork", "lafourchette", "opentable", "resy", "bookatable")) else ""
+    return {
+        "phone":         first("phone", "contact:phone", "contact:mobile"),
+        "whatsapp":      first("contact:whatsapp", "whatsapp"),
+        "email":         first("email", "contact:email"),
+        "website":       website,
+        "book_url":      book_url,
+        "reservation":   (tags.get("reservation") or "").lower(),  # yes / no / required
+        "opening_hours": tags.get("opening_hours", ""),
+    }
+
+
+def bookability_score(contact: dict) -> float:
+    """0→1 : à quel point ce lieu est facile à réserver (canal le plus fort dispo)."""
+    if not contact:
+        return 0.1
+    if contact.get("book_url") or contact.get("reservation") in ("yes", "required"):
+        return 1.0
+    if contact.get("whatsapp"):
+        return 0.85
+    if contact.get("phone"):
+        return 0.7
+    if contact.get("email"):
+        return 0.5
+    if contact.get("website"):
+        return 0.4
+    return 0.1
+
+
 def _score_venue(
     venue: dict,
     member_coords: list,
@@ -119,7 +165,18 @@ def _score_venue(
     if v_lat and v_lng:
         completeness += 0.2
 
-    return round(0.40 * dist_score + 0.25 * type_score + 0.20 * completeness + 0.15 * fairness_score, 4)
+    # Bookability — à qualité égale, on préfère un lieu facile à réserver.
+    # C'est le pivot du Concierge : choisir le lieu en pensant déjà à la résa.
+    book_score = bookability_score(venue.get("contact") or {})
+
+    return round(
+        0.35 * dist_score
+        + 0.22 * type_score
+        + 0.13 * completeness
+        + 0.12 * fairness_score
+        + 0.18 * book_score,
+        4,
+    )
 
 
 def pick_best_venue(
@@ -227,6 +284,7 @@ async def search_venues(
                 "url":      tags_data.get("website", ""),
                 "lat":      float(v_lat) if v_lat else None,
                 "lng":      float(v_lng) if v_lng else None,
+                "contact":  extract_contact(tags_data),
                 "_tags":    tags_data,
             })
 

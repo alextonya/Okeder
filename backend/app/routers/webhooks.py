@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
-from app.utils.crypto import verify_stripe_webhook
+from app.utils.crypto import verify_stripe_webhook, verify_telegram_webhook
 
 router = APIRouter()
 
@@ -31,7 +32,16 @@ async def eventbrite_webhook(request: Request, db: AsyncSession = Depends(get_db
 
 @router.post("/telegram")
 async def telegram_webhook(request: Request):
-    """Passthrough vers le bot — utilisé en mode webhook prod."""
+    """Passthrough vers le bot — utilisé en mode webhook prod.
+
+    Telegram renvoie le secret configuré via setWebhook(secret_token=...) dans
+    l'en-tête X-Telegram-Bot-Api-Secret-Token. Convention du projet : ce secret
+    vaut sha256(bot_token) (cf. verify_telegram_webhook).
+    """
+    secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not verify_telegram_webhook(settings.telegram_bot_token, secret_header):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid secret token")
+
     body = await request.json()
     from app.services.telegram_relay import relay_update
     await relay_update(body)

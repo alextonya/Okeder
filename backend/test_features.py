@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
 
-BASE = os.environ.get("TEST_BASE", "https://nissan-photos-being-agency.trycloudflare.com")
+BASE = os.environ.get("TEST_BASE", "http://localhost:8000")
 EMAIL = "tester@okeder.app"
 CODE = "424242"
 H = {"ngrok-skip-browser-warning": "1"}

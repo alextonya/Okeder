@@ -858,6 +858,127 @@ async def pwa_commit(request: Request, db: AsyncSession = Depends(get_db)):
     return JSONResponse({"ok": True, "member_id": str(member.id), "counts": counts})
 
 
+# ─── Concierge : réservation côté membre (page /result) ──────────────────────
+
+async def _organiser_and_party(event_id: str, db) -> tuple[str, int]:
+    """Nom de l'organisateur + taille du groupe (going > responded > 2)."""
+    from app.models.event import Event
+    from app.models.member import Member
+    from app.services.synthesis import compute_event_stats
+
+    organiser = "Okeder"
+    ev = (await db.execute(select(Event).where(Event.id == uuid.UUID(event_id)))).scalar_one_or_none()
+    if ev and ev.created_by:
+        cm = (await db.execute(select(Member).where(Member.id == ev.created_by))).scalar_one_or_none()
+        if cm and cm.display_name:
+            organiser = cm.display_name
+    stats = await compute_event_stats(event_id, db) or {}
+    party = stats.get("going") or stats.get("responded") or 2
+    return organiser, int(party)
+
+
+@router.post("/pwa/result/{event_id}/book")
+async def result_book(event_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Prépare la cascade de réservation. Ouvert à tout membre (confirmation distribuée)."""
+    from app.services.booking import request_restaurant_booking
+
+    proposal = await _published_proposal(event_id, db)
+    if not proposal:
+        return JSONResponse({"ok": False, "error": "no proposal"}, status_code=404)
+    organiser, party = await _organiser_and_party(event_id, db)
+    be = await request_restaurant_booking(proposal, organiser, party, db)
+    return JSONResponse({"ok": True, "assets": be.confirmation_data})
+
+
+@router.post("/pwa/result/{event_id}/book/sent")
+async def result_book_sent(event_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Un membre a déclenché l'envoi via un canal → avance la machine à états."""
+    from app.services.booking import mark_outreach_sent
+
+    body = await request.json()
+    channel = (body.get("channel") or "")[:40]
+    proposal = await _published_proposal(event_id, db)
+    if not proposal:
+        return JSONResponse({"ok": False, "error": "no proposal"}, status_code=404)
+    await mark_outreach_sent(proposal.id, channel, db)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/pwa/result/{event_id}/book/confirm")
+async def result_book_confirm(event_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Marque la réservation confirmée + notifie le groupe. Ouvert à tout membre."""
+    from app.services.booking import confirm_booking
+
+    proposal = await _published_proposal(event_id, db)
+    if not proposal:
+        return JSONResponse({"ok": False, "error": "no proposal"}, status_code=404)
+    await confirm_booking(proposal.id, db)
+
+    try:
+        from app.models.event import Event
+        from app.models.group import Group
+        from app.services.notification_service import send_telegram_message
+        from app.services.synthesis import update_initiator_synthesis
+        ev = (await db.execute(select(Event).where(Event.id == uuid.UUID(event_id)))).scalar_one_or_none()
+        if ev:
+            grp = (await db.execute(select(Group).where(Group.id == ev.group_id))).scalar_one_or_none()
+            if grp and grp.telegram_chat_id:
+                when = proposal.date_time.strftime("%d/%m at %H:%M") if proposal.date_time else "soon"
+                await send_telegram_message(
+                    grp.telegram_chat_id,
+                    f"✅ <b>It's booked!</b>\n{proposal.venue_name or 'The venue'} — {when}.\nSee you there! 🎉",
+                )
+        await update_initiator_synthesis(event_id, db)
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/pwa/result/{event_id}/autobook")
+async def result_autobook(event_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Déclenche l'agent navigateur (zéro-clic). Disclosé, auto-submit sauf paiement.
+    Ouvert à tout membre. Sert aussi au test live (sans passer par l'acompte)."""
+    from datetime import datetime, timezone
+    from app.models.event import Event
+    from app.models.member import Member
+    from app.models.booking_execution import BookingExecution, BookingMethod, BookingStatus
+    from app.services.ai_booking_agent import attempt_booking
+    from app.services.booking import build_cascade, BookingState
+
+    proposal = await _published_proposal(event_id, db)
+    if not proposal:
+        return JSONResponse({"ok": False, "error": "no proposal"}, status_code=404)
+
+    organiser_name, party = await _organiser_and_party(event_id, db)
+    organiser = {"name": organiser_name, "email": "", "phone": ""}
+    ev = (await db.execute(select(Event).where(Event.id == uuid.UUID(event_id)))).scalar_one_or_none()
+    if ev and ev.created_by:
+        cm = (await db.execute(select(Member).where(Member.id == ev.created_by))).scalar_one_or_none()
+        if cm:
+            organiser = {"name": cm.display_name or organiser_name, "email": cm.email or "", "phone": cm.phone or ""}
+
+    assets = await build_cascade(proposal, organiser["name"], party)
+    agent = await attempt_booking(proposal, assets, organiser)
+
+    if agent.get("attempted") and agent.get("success"):
+        now = datetime.now(timezone.utc)
+        db.add(BookingExecution(
+            proposal_id=proposal.id,
+            method=BookingMethod.AI_BROWSER_AGENT,
+            status=BookingStatus.SUCCESS,
+            external_url=assets.get("open_url"),
+            confirmation_data={**assets, "state": BookingState.CONFIRMED,
+                               "agent": {k: v for k, v in agent.items() if k != "screenshot_b64"}},
+            agent_disclosed=True,
+            attempted_at=now,
+            completed_at=now,
+        ))
+        await db.commit()
+
+    return JSONResponse({"ok": True, "agent": agent})
+
+
 # ─── Page de résultat (proposal web) ─────────────────────────────────────────
 
 @router.get("/result/{event_id}", response_class=HTMLResponse)
@@ -959,6 +1080,125 @@ async def result_page(event_id: str, db: AsyncSession = Depends(get_db)):
         "</style>"
     )
 
+    # JS Concierge (chaîne normale → accolades littérales, pas d'échappement f-string)
+    booking_js = """
+    async function loadBooking() {
+      const memberId = localStorage.getItem('okeder_member_' + EVENT_ID) || '';
+      const btn = document.getElementById('book-prep');
+      const box = document.getElementById('booking-actions');
+      if (btn) btn.textContent = '…';
+      try {
+        const r = await fetch(BACKEND + '/pwa/result/' + EVENT_ID + '/book', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member_id: memberId }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (!d || !d.assets) throw new Error('no assets in response');
+        renderBooking(d.assets);
+      } catch (e) {
+        // Erreur visible inline (diagnostic) plutôt qu'une alerte vague
+        if (box) {
+          box.style.display = 'block';
+          box.innerHTML = '<div style="color:#b91c1c;font-size:13px;white-space:pre-wrap">⚠️ ' +
+            (e && e.message ? e.message : e) + '</div>';
+        }
+        if (btn) btn.textContent = '📅 Prepare reservation';
+      }
+    }
+    function _bkBtn(label, href, channel, cls) {
+      return '<a class="btn ' + cls + '" target="_blank" rel="noopener" href="' + href +
+             '" onclick="markSent(\\'' + channel + '\\')" style="display:block;margin-top:8px">' + label + '</a>';
+    }
+    function renderBooking(a) {
+      const c = a.channels || {};
+      const rec = a.recommended || '';
+      const items = [];
+      if (c.reserve) {
+        const lbl = '🍽️ Reserve at ' + (a.venue_name || 'the venue') +
+                    (a.party_size ? ' · ' + a.party_size + ' ppl' : '');
+        items.push([lbl, c.reserve, 'reserve']);
+      }
+      if (c.thefork)  items.push(['🍴 Book on TheFork', c.thefork, 'thefork']);
+      if (c.call)     items.push(['📞 Call the venue', c.call, 'call']);
+      if (c.whatsapp) items.push(['💬 WhatsApp the venue', c.whatsapp, 'whatsapp']);
+      if (c.email)    items.push(['✉️ Email the venue', c.email, 'email']);
+      items.push(['📍 Open venue page', c.open_url || '#', 'open']);
+      let html = '';
+      items.forEach(function (it) {
+        const isRec = it[2] === rec;
+        html += _bkBtn(it[0] + (isRec ? '  ⭐' : ''), it[1], it[2], isRec ? 'btn-primary' : 'btn-ghost');
+      });
+      if (a.message) {
+        html += '<div class="label" style="margin-top:14px">Message ready to send</div>';
+        html += '<textarea id="bk-msg" style="width:100%;min-height:92px;border-radius:12px;padding:10px;border:1px solid var(--line,#e5e5e5);font:inherit;box-sizing:border-box">' + a.message + '</textarea>';
+        html += '<button class="btn btn-ghost sm" onclick="copyMsg()" style="margin-top:8px">📋 Copy message</button>';
+      }
+      html += '<button class="btn btn-primary" onclick="autoBook(this)" style="margin-top:12px;width:100%">🤖 Let Okeder book it (beta)</button>';
+      html += '<div id="autobook-result" style="margin-top:10px"></div>';
+      html += '<button class="btn btn-dark" onclick="markBooked()" style="margin-top:10px;width:100%">✅ Mark as booked</button>';
+      const box = document.getElementById('booking-actions');
+      box.innerHTML = html; box.style.display = 'block';
+      const btn = document.getElementById('book-prep'); if (btn) btn.style.display = 'none';
+    }
+    function copyMsg() {
+      const t = document.getElementById('bk-msg'); if (!t) return;
+      t.select();
+      if (navigator.clipboard) navigator.clipboard.writeText(t.value).catch(function(){});
+      else { try { document.execCommand('copy'); } catch (e) {} }
+    }
+    function markSent(channel) {
+      const memberId = localStorage.getItem('okeder_member_' + EVENT_ID) || '';
+      fetch(BACKEND + '/pwa/result/' + EVENT_ID + '/book/sent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, channel: channel }),
+      }).catch(function(){});
+    }
+    async function autoBook(btn) {
+      const out = document.getElementById('autobook-result');
+      btn.disabled = true; btn.textContent = '🤖 Booking…';
+      if (out) out.innerHTML = '<div class="muted" style="font-size:13px">Okeder is filling the reservation form…</div>';
+      try {
+        const r = await fetch(BACKEND + '/pwa/result/' + EVENT_ID + '/autobook', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        const d = await r.json();
+        const a = d.agent || {};
+        let html;
+        if (a.success) {
+          html = '<div style="color:#16a34a;font-weight:700">✅ Booked automatically!' +
+                 (a.confirmation ? ' (' + a.confirmation + ')' : '') + '</div>';
+        } else if (!a.attempted) {
+          html = '<div style="color:#b45309;font-size:13px">ℹ️ Auto-book unavailable (' +
+                 (a.reason || 'n/a') + '). Use a link above instead.</div>';
+        } else {
+          html = '<div style="color:#b45309;font-size:13px">⚠️ Stopped: ' +
+                 (a.stopped_reason || 'unknown') + ' — use a link above.</div>';
+        }
+        if (a.screenshot_b64) {
+          html += '<img alt="agent view" src="data:image/png;base64,' + a.screenshot_b64 +
+                  '" style="margin-top:10px;width:100%;border-radius:10px;border:1px solid #eee">';
+        }
+        if (out) out.innerHTML = html;
+      } catch (e) {
+        if (out) out.innerHTML = '<div style="color:#b91c1c;font-size:13px">⚠️ ' + (e.message || e) + '</div>';
+      }
+      btn.disabled = false; btn.textContent = '🤖 Let Okeder book it (beta)';
+    }
+    async function markBooked() {
+      const memberId = localStorage.getItem('okeder_member_' + EVENT_ID) || '';
+      try {
+        const r = await fetch(BACKEND + '/pwa/result/' + EVENT_ID + '/book/confirm', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member_id: memberId }),
+        });
+        if (!r.ok) throw new Error('http ' + r.status);
+        const box = document.getElementById('booking-actions');
+        box.innerHTML = '<div style="text-align:center;color:var(--ok,#16a34a);font-weight:700">✅ Booked! Everyone has been notified.</div>';
+      } catch (e) { alert('Could not mark as booked.'); }
+    }
+    """
+
     body = f"""
 <div class="wrap">
   <div class="brand" style="margin-bottom:18px"><span class="dot"></span>Okeder</div>
@@ -984,6 +1224,13 @@ async def result_page(event_id: str, db: AsyncSession = Depends(get_db)):
     <button class="btn btn-ghost" onclick="commit('soft')">👍 Interested</button>
     <button class="btn btn-primary" onclick="commit('confirmed')">✅ I'm In</button>
     <button class="btn btn-dark" onclick="commit('hard')">🔒 Lock In</button>
+  </div>
+
+  <div class="label" style="margin-top:24px">Lock the table</div>
+  <div class="card" style="margin-top:8px">
+    <p class="muted" style="font-size:13.5px">Okeder preps the reservation for this venue — pick a channel, one tap. Anyone in the group can do it.</p>
+    <button class="btn btn-primary" id="book-prep" onclick="loadBooking()" style="margin-top:12px">📅 Prepare reservation</button>
+    <div id="booking-actions" style="display:none;margin-top:4px"></div>
   </div>
 
   <script>
@@ -1067,6 +1314,8 @@ async def result_page(event_id: str, db: AsyncSession = Depends(get_db)):
         if (el) el.textContent = '👍 ' + counts.soft + '    ✅ ' + counts.confirmed + '    🔒 ' + counts.hard;
       }}
     }}
+
+    {booking_js}
 
     function urlBase64ToUint8Array(base64String) {{
       const padding = '='.repeat((4 - base64String.length % 4) % 4);

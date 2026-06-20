@@ -1,10 +1,14 @@
 """Simulation du flow complet via l'API interne (header x-bot-token).
 Crée un groupe + 3 membres parisiens, soumet leurs préférences -> quorum 60% -> moteur."""
 import json
+import os
+import sys
 import urllib.request
 
-BASE = "http://localhost:8000/v1/internal/telegram"
-TOKEN = "8966795257:AAE5xs58cHAqPnCl9u-jvHFfGOSx9UPYWh4"
+BASE = os.environ.get("SIM_BASE", "http://localhost:8000/v1/internal/telegram")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    sys.exit("❌ Définis TELEGRAM_BOT_TOKEN dans l'environnement (header x-bot-token).")
 CHAT_ID = -1009000000001  # groupe de test
 
 

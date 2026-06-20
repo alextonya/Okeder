@@ -295,6 +295,11 @@ async def commitment_from_bot(
     proposal_prefix: str = body["proposal_id"]   # peut être un prefix court ou un UUID complet
     event_prefix: str = body.get("event_id", "")
     level: str = body.get("level", CommitmentLevel.SOFT)
+    if level not in (CommitmentLevel.SOFT, CommitmentLevel.CONFIRMED, CommitmentLevel.HARD):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="level must be one of: soft, confirmed, hard",
+        )
 
     member_result = await db.execute(select(Member).where(Member.telegram_user_id == tg_id))
     member = member_result.scalar_one_or_none()
@@ -437,17 +442,29 @@ async def rating_from_bot(
 ):
     """Enregistre une note post-event depuis le bot."""
     import uuid
-    from app.models.event import Event
+    from app.models.rating import Rating
 
     tg_id: int = body["telegram_user_id"]
     event_id: str = body["event_id"]
-    score: int = body["score"]
+    score: int = int(body["score"])
+    if not 1 <= score <= 5:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Score must be 1–5")
 
     member_result = await db.execute(select(Member).where(Member.telegram_user_id == tg_id))
     member = member_result.scalar_one_or_none()
     if not member:
         return {"ok": True}
 
-    # TODO M6 : stocker le rating dans une table dédiée + déclencher update_behavioral_profile
-    # Pour M1 : log seulement
+    event_uuid = uuid.UUID(event_id)
+    # Upsert : une seule note par (event, member)
+    result = await db.execute(
+        select(Rating).where(Rating.event_id == event_uuid, Rating.member_id == member.id)
+    )
+    rating = result.scalar_one_or_none()
+    if rating:
+        rating.score = score
+    else:
+        db.add(Rating(event_id=event_uuid, member_id=member.id, score=score))
+    await db.commit()
+    # TODO M6 : update_behavioral_profile
     return {"ok": True, "score": score}

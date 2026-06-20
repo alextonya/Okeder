@@ -47,17 +47,44 @@ async def test_create_event_starts_collecting_and_enqueues(client, monkeypatch):
 
 # ─── L7 — Rating : validation 1–5 ────────────────────────────────────────────
 
+async def _make_event(client, monkeypatch):
+    """Crée un groupe + un event via l'API et renvoie l'event_id."""
+    monkeypatch.setattr(
+        "app.workers.jobs.collect_constraints.enqueue_collect_constraints", AsyncMock()
+    )
+    g = await client.post("/v1/groups", json={"name": "Notes"})
+    r = await client.post("/v1/events", json={"group_id": g.json()["id"], "title": "Resto"})
+    return r.json()["id"]
+
+
 async def test_rating_rejects_out_of_range(client):
     eid = str(uuid.uuid4())
     assert (await client.post(f"/v1/events/{eid}/ratings", json={"score": 0})).status_code == 422
     assert (await client.post(f"/v1/events/{eid}/ratings", json={"score": 6})).status_code == 422
 
 
-async def test_rating_accepts_valid_score(client):
+async def test_rating_unknown_event_404(client):
     eid = str(uuid.uuid4())
+    assert (await client.post(f"/v1/events/{eid}/ratings", json={"score": 4})).status_code == 404
+
+
+async def test_rating_persists_and_upserts(client, monkeypatch, sessionmaker_test):
+    eid = await _make_event(client, monkeypatch)
+
     r = await client.post(f"/v1/events/{eid}/ratings", json={"score": 4})
     assert r.status_code == 201
     assert r.json()["score"] == 4
+
+    # Re-note → met à jour (contrainte unique event+member), pas de doublon
+    r2 = await client.post(f"/v1/events/{eid}/ratings", json={"score": 2})
+    assert r2.status_code == 201
+
+    from sqlalchemy import select as sa_select
+    from app.models.rating import Rating
+    async with sessionmaker_test() as s:
+        rows = (await s.execute(sa_select(Rating).where(Rating.event_id == uuid.UUID(eid)))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].score == 2
 
 
 # ─── L5 — Commitment : upsert soft → confirmed ───────────────────────────────
@@ -98,13 +125,11 @@ async def test_commitment_upsert_updates_level(client, sessionmaker_test):
     assert me2.json()["level"] == "confirmed"
 
 
-async def test_commitment_level_not_validated_known_gap(client, sessionmaker_test):
-    """Documente un écart relevé à l'audit : le routeur n'EST PAS strict sur `level`.
-    Une valeur arbitraire est acceptée (201). À durcir côté code plus tard."""
+async def test_commitment_level_validated(client, sessionmaker_test):
+    """Le routeur rejette désormais un `level` hors enum (soft/confirmed/hard)."""
     proposal_id = await _make_proposal(sessionmaker_test)
     r = await client.post(f"/v1/proposals/{proposal_id}/commitments", json={"level": "banana"})
-    assert r.status_code == 201
-    assert r.json()["level"] == "banana"
+    assert r.status_code == 422
 
 
 # ─── L4 — Proposal courante + bloc de transparence ───────────────────────────
