@@ -1,48 +1,38 @@
 """
-Okeder booking-agent — service navigateur (Playwright) qui REMPLIT le formulaire
-de réservation d'un resto à partir du proposal, et le valide (sauf paiement).
+Okeder booking-agent — Browser Use + GPT-4o (remplace l'heuristique Playwright).
 
-Garde-fous (non négociables) :
+Même interface HTTP qu'avant :
+  POST /book  →  {attempted, success, stopped_reason, confirmation, screenshot_b64, steps}
+  GET  /health → {ok: true}
+
+Garde-fous conservés (non négociables) :
   • Disclosé : nom = "<name> (via Okeder)" + message mentionnant l'assistant.
-  • S'arrête si saisie de CARTE / captcha / login → stopped_reason → l'app retombe
-    sur le lien pré-rempli (jamais de réservation en aveugle).
-  • Best-effort heuristique, iframe-aware (TheFork/Zenchef sont souvent en iframe).
-    Marche sur les widgets standards, échoue proprement ailleurs.
+  • Arrêt si carte bancaire / captcha / login détectés.
+  • Arrêt si auto_submit=False (rempli mais non soumis).
 
-POST /book → {attempted, success, stopped_reason, confirmation, screenshot_b64, steps}
+Nouveauté vs l'heuristique :
+  • Le LLM (GPT-4o) lit le DOM + screenshot à chaque étape → gère n'importe quel
+    widget sans sélecteur CSS codé en dur (TheFork popup, Zenchef, OpenTable, etc.)
 """
 import base64
+import json
 import logging
+import os
+import re
 
 from fastapi import FastAPI
-from playwright.async_api import async_playwright
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("booking-agent")
 app = FastAPI(title="Okeder booking-agent")
 
-# Marqueurs de SAISIE DE CARTE uniquement (resserrés pour éviter les faux positifs
-# sur un simple mot "paiement" en pied de page).
-CARD = ["card number", "numéro de carte", "credit card", "carte de crédit",
-        "carte bancaire", "cvv", "cvc", "expiry", "date d'expiration",
-        "empreinte bancaire", "card holder", "titulaire de la carte"]
-BLOCK = ["captcha", "recaptcha", "hcaptcha", "not a robot", "sign in", "log in",
-         "connectez-vous", "créer un compte", "connexion requise"]
-RESERVE_WORDS = ["réserver une table", "réserver", "reserve a table", "book a table",
-                 "reservation", "réservation", "prendre une table", "booking"]
-COOKIE_WORDS = ["tout accepter", "accepter", "j'accepte", "accept all", "accept", "got it"]
-SUBMIT_WORDS = ["confirmer la réservation", "valider la réservation", "réserver maintenant",
-                "confirmer", "valider", "réserver", "book now", "confirm", "finaliser"]
-CONFIRM_WORDS = ["confirmée", "confirmed", "réservation enregistrée", "merci de votre réservation",
-                 "votre réservation", "your reservation", "booking confirmed", "à bientôt"]
-
 
 class BookReq(BaseModel):
     url: str
     party: int = 2
-    date: str | None = None      # YYYY-MM-DD
-    time: str | None = None      # HH:MM
+    date: str | None = None       # YYYY-MM-DD
+    time: str | None = None       # HH:MM
     name: str = ""
     email: str = ""
     phone: str = ""
@@ -57,168 +47,151 @@ async def health():
 
 @app.post("/book")
 async def book(req: BookReq):
-    res = {"attempted": True, "success": False, "stopped_reason": None,
-           "confirmation": "", "screenshot_b64": "", "steps": []}
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
-        ctx = await browser.new_context(
-            locale="fr-FR",
-            user_agent="Mozilla/5.0 (compatible; OkederBookingAssistant/1.0)",
+    res = {
+        "attempted": True,
+        "success": False,
+        "stopped_reason": None,
+        "confirmation": "",
+        "screenshot_b64": "",
+        "steps": [],
+    }
+
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    if not openai_api_key:
+        res["stopped_reason"] = "error: OPENAI_API_KEY manquante"
+        return res
+
+    # Si auto_submit=False, on informe mais on ne réserve pas
+    if not req.auto_submit:
+        res["stopped_reason"] = "filled_not_submitted"
+        res["steps"].append("auto_submit:disabled")
+        return res
+
+    try:
+        from browser_use import Agent, BrowserConfig
+        from langchain_openai import ChatOpenAI
+        from playwright.async_api import async_playwright
+    except ImportError as e:
+        res["stopped_reason"] = f"error: dépendance manquante — {e}"
+        return res
+
+    # Disclosure : le nom et le message sont toujours marqués "via Okeder"
+    disclosed_name = (req.name + " (via Okeder)").strip()
+    disclosed_msg = (
+        (req.message + "\n\n" if req.message else "")
+        + "(Réservation préparée par l'assistant Okeder.)"
+    ).strip()
+
+    task = f"""
+Tu es l'assistant de réservation d'Okeder. Réponds en français.
+
+Va sur : {req.url}
+
+Remplis le formulaire de réservation avec ces informations :
+- Couverts / guests : {req.party}
+- Date : {req.date or "non spécifiée"}
+- Heure : {req.time or "non spécifiée"}
+- Nom : {disclosed_name}
+- Email : {req.email}
+- Téléphone : {req.phone}
+- Message / notes : {disclosed_msg}
+
+RÈGLES ABSOLUES — respecte-les dans cet ordre de priorité :
+1. Si un champ demande un numéro de carte bancaire, CVV, ou empreinte bancaire → ARRÊTE-TOI immédiatement. Retourne {{"status":"payment_required","steps":[],"confirmation":""}}.
+2. Si un CAPTCHA interactif (puzzle, sélection d'images) apparaît → ARRÊTE-TOI. Retourne {{"status":"login_or_captcha","steps":[],"confirmation":""}}.
+3. Si une connexion obligatoire / création de compte est exigée → ARRÊTE-TOI. Retourne {{"status":"login_or_captcha","steps":[],"confirmation":""}}.
+4. Si aucun formulaire de réservation n'est trouvé après avoir navigué sur la page → Retourne {{"status":"no_form_found","steps":[],"confirmation":""}}.
+5. Soumets le formulaire UNIQUEMENT si les règles 1-4 sont toutes respectées.
+6. N'accepte aucune newsletter ni offre marketing.
+7. Accepte les cookies si une bannière bloque l'accès au formulaire.
+
+À la fin, retourne UN SEUL objet JSON sur une ligne :
+{{"status":"success"|"payment_required"|"login_or_captcha"|"no_form_found"|"error","steps":["liste des actions effectuées"],"confirmation":"texte de confirmation affiché par le site si succès"}}
+"""
+
+    screenshot_b64 = ""
+    try:
+        llm = ChatOpenAI(
+            model="gpt-4o",
+            api_key=openai_api_key,
+            temperature=0,
+            max_tokens=1024,
         )
-        page = await ctx.new_page()
+
+        browser_config = BrowserConfig(
+            headless=os.getenv("AGENT_HEADLESS", "true").lower() == "true",
+        )
+
+        agent = Agent(
+            task=task,
+            llm=llm,
+            browser_config=browser_config,
+            max_actions_per_step=5,
+        )
+
+        history = await agent.run(max_steps=25)
+        raw_result = history.final_result() or ""
+
+        # Screenshot final indépendant via Playwright
         try:
-            await page.goto(req.url, wait_until="domcontentloaded", timeout=25000)
-            await page.wait_for_timeout(2500)
-            await _click_text(page, COOKIE_WORDS, res, "cookies")
-            await _click_text(page, RESERVE_WORDS, res, "open")
-            await page.wait_for_timeout(2000)
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                )
+                page = await browser.new_page()
+                await page.goto(req.url, wait_until="domcontentloaded", timeout=15000)
+                screenshot_b64 = base64.b64encode(
+                    await page.screenshot(full_page=False)
+                ).decode()
+                await browser.close()
+        except Exception:
+            pass
 
-            txt = await _all_text(page)
-            if any(b in txt for b in BLOCK):
-                return _stop(res, "login_or_captcha", await _shot(page))
+        res["screenshot_b64"] = screenshot_b64
+        return _parse_result(raw_result, res)
 
-            # Remplit dans la 1ère "scope" (page ou iframe) qui a un formulaire
-            scope, filled = await _fill_best_scope(page, req, res)
-            if not filled:
-                return _stop(res, "no_form_found", await _shot(page))
-            txt2 = await _all_text(page)
-            if any(c in txt2 for c in CARD):
-                return _stop(res, "payment_required", await _shot(page))
+    except Exception as exc:
+        log.exception("book() failed")
+        res["stopped_reason"] = f"error: {str(exc)[:300]}"
+        res["screenshot_b64"] = screenshot_b64
+        return res
 
-            if req.auto_submit:
-                clicked = await _click_text(scope, SUBMIT_WORDS, res, "submit")
-                await page.wait_for_timeout(3000)
-                after = await _all_text(page)
-                if any(c in after for c in CARD):
-                    return _stop(res, "payment_required", await _shot(page))
-                conf = next((w for w in CONFIRM_WORDS if w in after), "")
-                res["success"] = bool(conf) or clicked
-                res["confirmation"] = conf
+
+def _parse_result(raw: str, res: dict) -> dict:
+    """Parse la réponse JSON de l'agent et hydrate `res`."""
+    match = re.search(r'\{[^{}]+\}', raw or "")
+    if match:
+        try:
+            data = json.loads(match.group())
+            status = data.get("status", "error")
+            steps  = data.get("steps", [])
+            conf   = data.get("confirmation", "")
+
+            res["steps"] = steps if isinstance(steps, list) else [str(steps)]
+            res["confirmation"] = conf
+
+            if status == "success":
+                res["success"] = True
             else:
-                res["stopped_reason"] = "filled_not_submitted"
-
-            res["screenshot_b64"] = await _shot(page)
+                res["stopped_reason"] = status
             return res
-        except Exception as e:
-            log.exception("book() failed")
-            return _stop(res, "error: " + str(e)[:200], await _shot(page))
-        finally:
-            await browser.close()
+        except json.JSONDecodeError:
+            pass
 
+    # Fallback mots-clés si JSON malformé
+    raw_l = (raw or "").lower()
+    for kw, reason in [
+        ("payment_required", "payment_required"),
+        ("login_or_captcha", "login_or_captcha"),
+        ("no_form_found",    "no_form_found"),
+        ("success",          None),
+    ]:
+        if kw in raw_l:
+            if reason is None:
+                res["success"] = True
+            else:
+                res["stopped_reason"] = reason
+            return res
 
-def _stop(res, reason, shot):
-    res["stopped_reason"] = reason
-    res["screenshot_b64"] = shot
+    res["stopped_reason"] = f"parse_error: {raw[:200]}"
     return res
-
-
-async def _all_text(page) -> str:
-    """Texte de la page + de toutes les iframes (minuscule)."""
-    parts = []
-    for fr in page.frames:
-        try:
-            parts.append(await fr.inner_text("body", timeout=2000))
-        except Exception:
-            continue
-    return " ".join(parts).lower()
-
-
-async def _shot(page) -> str:
-    try:
-        return base64.b64encode(await page.screenshot(full_page=False)).decode()
-    except Exception:
-        return ""
-
-
-async def _click_text(scope, words, res, label) -> bool:
-    for w in words:
-        for sel in (f"button:has-text(\"{w}\")", f"a:has-text(\"{w}\")",
-                    f"[role=button]:has-text(\"{w}\")"):
-            try:
-                el = scope.locator(sel).first
-                if await el.count() and await el.is_visible():
-                    await el.click(timeout=3000)
-                    res["steps"].append(f"{label}:{w}")
-                    return True
-            except Exception:
-                continue
-    return False
-
-
-async def _fill_field(scope, selectors, value, res, label) -> bool:
-    if not value:
-        return False
-    for sel in selectors:
-        try:
-            el = scope.locator(sel).first
-            if await el.count() and await el.is_visible():
-                await el.fill(str(value), timeout=2500)
-                res["steps"].append(f"fill:{label}")
-                return True
-        except Exception:
-            continue
-    return False
-
-
-async def _select_party(scope, party, res) -> bool:
-    try:
-        selects = scope.locator("select")
-        n = await selects.count()
-        for i in range(min(n, 8)):
-            s = selects.nth(i)
-            try:
-                opts = await s.locator("option").all_inner_texts()
-            except Exception:
-                opts = []
-            for needle in (f"{party} personne", f"{party} pers", f"{party} guest",
-                           f"{party} people", f"{party} couvert", str(party)):
-                for o in opts:
-                    if needle.lower() in o.lower():
-                        try:
-                            await s.select_option(label=o, timeout=2000)
-                            res["steps"].append("fill:party(select)")
-                            return True
-                        except Exception:
-                            pass
-    except Exception:
-        pass
-    return await _fill_field(
-        scope,
-        ["input[name*=party i]", "input[name*=cover i]", "input[name*=guest i]",
-         "input[aria-label*=personne i]", "input[aria-label*=couvert i]", "input[type=number]"],
-        party, res, "party(input)",
-    )
-
-
-async def _fill_scope(scope, req, res) -> bool:
-    filled = False
-    filled |= await _select_party(scope, req.party, res)
-    if req.date:
-        filled |= await _fill_field(scope, ["input[type=date]", "input[name*=date i]",
-                                            "input[placeholder*=date i]"], req.date, res, "date")
-    if req.time:
-        filled |= await _fill_field(scope, ["input[type=time]", "input[name*=time i]",
-                                            "input[name*=heure i]"], req.time, res, "time")
-    name = (req.name + " (via Okeder)").strip()
-    await _fill_field(scope, ["input[name*=name i]", "input[autocomplete=name]", "input[name*=nom i]",
-                              "input[placeholder*=nom i]", "input[placeholder*=name i]"], name, res, "name")
-    await _fill_field(scope, ["input[type=email]", "input[name*=email i]",
-                              "input[autocomplete=email]"], req.email, res, "email")
-    await _fill_field(scope, ["input[type=tel]", "input[name*=phone i]", "input[name*=tel i]",
-                              "input[autocomplete=tel]"], req.phone, res, "phone")
-    msg = (req.message + "\n\n(Réservation préparée par l'assistant Okeder.)").strip()
-    await _fill_field(scope, ["textarea[name*=message i]", "textarea[name*=note i]",
-                              "textarea[name*=comment i]", "textarea"], msg, res, "message")
-    return filled
-
-
-async def _fill_best_scope(page, req, res):
-    """Essaie la page puis chaque iframe ; renvoie (scope, filled) au 1er succès."""
-    scopes = [page] + [fr for fr in page.frames if fr != page.main_frame]
-    for scope in scopes:
-        try:
-            if await _fill_scope(scope, req, res):
-                return scope, True
-        except Exception:
-            continue
-    return page, False

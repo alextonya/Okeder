@@ -61,6 +61,10 @@ services:
     autoDeploy: true
     envVars:
       - fromGroup: okeder-shared
+      - key: BOOKING_AGENT_URL
+        value: https://okeder-booking-agent.onrender.com
+      - key: ENABLE_AI_BOOKING_AGENT
+        value: "true"
 
   # ── Worker arq (DMs, moteur de décision, envoi de proposition, booking) ──────
   - type: worker
@@ -87,4 +91,19 @@ services:
       - key: BACKEND_API_URL
         value: https://okeder.com/v1
       - key: TELEGRAM_USE_POLLING
+        value: "true"
+
+  # ── Booking Agent (Browser Use + GPT-4o) ────────────────────────────────────
+  - type: web
+    name: okeder-booking-agent
+    runtime: docker
+    dockerfilePath: booking-agent/Dockerfile
+    dockerContext: booking-agent
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AGENT_HEADLESS
         value: "true"
