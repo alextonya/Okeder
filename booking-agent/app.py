@@ -133,6 +133,23 @@ RÈGLES ABSOLUES — respecte-les dans cet ordre de priorité :
         try:
             history = await agent.run(max_steps=25)
             raw_result = history.final_result() or ""
+            log.info(
+                "book(): steps=%d is_done=%s is_successful=%s errors=%s final_result=%r extracted=%r",
+                len(history.history), history.is_done(), history.is_successful(),
+                history.errors(), raw_result, history.extracted_content(),
+            )
+            if not raw_result:
+                # L'agent n'a jamais appelé l'action "done" (steps épuisées / échec
+                # silencieux) — on retombe sur le dernier contenu extrait disponible.
+                extracted = [c for c in (history.extracted_content() or []) if c]
+                raw_result = extracted[-1] if extracted else ""
+            if not raw_result:
+                errs = [str(e) for e in (history.errors() or []) if e][:3]
+                raw_result = json.dumps({
+                    "status": f"no_result_after_{len(history.history)}_steps",
+                    "steps": errs,
+                    "confirmation": "",
+                })
         finally:
             await browser.close()
 
