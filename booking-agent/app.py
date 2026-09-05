@@ -68,7 +68,7 @@ async def book(req: BookReq):
         return res
 
     try:
-        from browser_use import Agent, BrowserConfig
+        from browser_use import Agent, Browser, BrowserConfig
         from langchain_openai import ChatOpenAI
         from playwright.async_api import async_playwright
     except ImportError as e:
@@ -121,16 +121,20 @@ RÈGLES ABSOLUES — respecte-les dans cet ordre de priorité :
         browser_config = BrowserConfig(
             headless=os.getenv("AGENT_HEADLESS", "true").lower() == "true",
         )
+        browser = Browser(config=browser_config)
 
         agent = Agent(
             task=task,
             llm=llm,
-            browser_config=browser_config,
+            browser=browser,
             max_actions_per_step=5,
         )
 
-        history = await agent.run(max_steps=25)
-        raw_result = history.final_result() or ""
+        try:
+            history = await agent.run(max_steps=25)
+            raw_result = history.final_result() or ""
+        finally:
+            await browser.close()
 
         # Screenshot final indépendant via Playwright
         try:
