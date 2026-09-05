@@ -9,7 +9,7 @@ envVarGroups:
       - key: APP_ENV
         value: production
       - key: PUBLIC_URL
-        value: https://okeder.com
+        value: https://okeder-backend.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
@@ -89,7 +89,7 @@ services:
     envVars:
       - fromGroup: okeder-shared
       - key: BACKEND_API_URL
-        value: https://okeder.com/v1
+        value: https://okeder-backend.onrender.com/v1
       - key: TELEGRAM_USE_POLLING
         value: "true"
 
