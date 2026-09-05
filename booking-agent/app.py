@@ -61,12 +61,6 @@ async def book(req: BookReq):
         res["stopped_reason"] = "error: OPENAI_API_KEY manquante"
         return res
 
-    # Si auto_submit=False, on informe mais on ne réserve pas
-    if not req.auto_submit:
-        res["stopped_reason"] = "filled_not_submitted"
-        res["steps"].append("auto_submit:disabled")
-        return res
-
     try:
         from browser_use import Agent, Browser, BrowserConfig
         from langchain_openai import ChatOpenAI
@@ -81,6 +75,15 @@ async def book(req: BookReq):
         (req.message + "\n\n" if req.message else "")
         + "(Réservation préparée par l'assistant Okeder.)"
     ).strip()
+
+    submit_rule = (
+        'Soumets le formulaire UNIQUEMENT si les règles 1-4 sont toutes respectées.'
+        if req.auto_submit else
+        'Remplis TOUS les champs du formulaire normalement, puis ARRÊTE-TOI juste avant '
+        'de cliquer sur le bouton final de confirmation/soumission de la réservation. '
+        'Ne clique JAMAIS ce bouton final. Retourne '
+        '{"status":"filled_not_submitted","steps":[],"confirmation":""}.'
+    )
 
     task = f"""
 Tu es l'assistant de réservation d'Okeder. Réponds en français.
@@ -101,12 +104,12 @@ RÈGLES ABSOLUES — respecte-les dans cet ordre de priorité :
 2. Si un CAPTCHA interactif (puzzle, sélection d'images) apparaît → ARRÊTE-TOI. Retourne {{"status":"login_or_captcha","steps":[],"confirmation":""}}.
 3. Si une connexion obligatoire / création de compte est exigée → ARRÊTE-TOI. Retourne {{"status":"login_or_captcha","steps":[],"confirmation":""}}.
 4. Si aucun formulaire de réservation n'est trouvé après avoir navigué sur la page → Retourne {{"status":"no_form_found","steps":[],"confirmation":""}}.
-5. Soumets le formulaire UNIQUEMENT si les règles 1-4 sont toutes respectées.
+5. {submit_rule}
 6. N'accepte aucune newsletter ni offre marketing.
 7. Accepte les cookies si une bannière bloque l'accès au formulaire.
 
 À la fin, retourne UN SEUL objet JSON sur une ligne :
-{{"status":"success"|"payment_required"|"login_or_captcha"|"no_form_found"|"error","steps":["liste des actions effectuées"],"confirmation":"texte de confirmation affiché par le site si succès"}}
+{{"status":"success"|"payment_required"|"login_or_captcha"|"no_form_found"|"filled_not_submitted"|"error","steps":["liste des actions effectuées"],"confirmation":"texte de confirmation affiché par le site si succès"}}
 """
 
     screenshot_b64 = ""
